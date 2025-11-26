@@ -24,13 +24,14 @@ def call_llm(
     Args:
         prompt: The user prompt to send
         model: The Ollama model to use (default: gpt-oss:20b)
-               Supports: gpt-oss:20b, gpt-oss:120b, llama3.1, qwen2.5, etc.
-               gpt-oss:20b: OpenAI's 20B reasoning model for clinical analysis
+               Text-only models: gpt-oss:20b, gpt-oss:120b, llama3.1, qwen2.5
+               Vision models: qwen3-vl:8b (recommended for medical images)
         system_prompt: Optional system prompt override
         output_schema: Optional Pydantic schema for structured output
         tools: Optional list of tools to bind
-        images: Optional list of base64-encoded PNG images for vision analysis
-               Note: Vision support depends on the model (gpt-oss:20b supports vision)
+        images: Optional list of base64-encoded PNG images or file paths for vision analysis
+               NOTE: Only vision-capable models (e.g., qwen3-vl:8b) can process images
+               gpt-oss:20b is TEXT-ONLY and will ignore image inputs
 
     Returns:
         AIMessage or structured output based on schema

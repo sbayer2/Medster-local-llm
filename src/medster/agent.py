@@ -23,8 +23,9 @@ from medster.utils.context_manager import (
 
 
 class Agent:
-    def __init__(self, max_steps: int = 20, max_steps_per_task: int = 5):
+    def __init__(self, model_name: str = "gpt-oss:20b", max_steps: int = 20, max_steps_per_task: int = 5):
         self.logger = Logger()
+        self.model_name = model_name          # Selected LLM model
         self.max_steps = max_steps            # global safety cap
         self.max_steps_per_task = max_steps_per_task
 
@@ -39,7 +40,7 @@ class Agent:
         """
         system_prompt = PLANNING_SYSTEM_PROMPT.format(tools=tool_descriptions)
         try:
-            response = call_llm(prompt, system_prompt=system_prompt, output_schema=TaskList)
+            response = call_llm(prompt, model=self.model_name, system_prompt=system_prompt, output_schema=TaskList)
             tasks = response.tasks
         except Exception as e:
             self.logger._log(f"Planning failed: {e}")
@@ -72,7 +73,7 @@ class Agent:
         """
 
         try:
-            ai_message = call_llm(prompt, system_prompt=ACTION_SYSTEM_PROMPT, tools=TOOLS)
+            ai_message = call_llm(prompt, model=self.model_name, system_prompt=ACTION_SYSTEM_PROMPT, tools=TOOLS)
             return ai_message
         except Exception as e:
             self.logger._log(f"ask_for_actions failed: {e}")
@@ -89,7 +90,7 @@ class Agent:
         Is the task done?
         """
         try:
-            resp = call_llm(prompt, system_prompt=VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
             return resp.done
         except:
             return False
@@ -121,7 +122,7 @@ Task Plan:
         Based on the task plan and data above, is the original clinical query sufficiently answered?
         """
         try:
-            resp = call_llm(prompt, system_prompt=META_VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=META_VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
             return resp.done
         except Exception as e:
             self.logger._log(f"Meta-validation failed: {e}")
@@ -149,7 +150,7 @@ Task Plan:
         Pay special attention to filtering parameters that would help narrow down results to match the task.
         """
         try:
-            response = call_llm(prompt, model="claude-sonnet-4.5", system_prompt=get_tool_args_system_prompt(), output_schema=OptimizedToolArgs)
+            response = call_llm(prompt, model=self.model_name, system_prompt=get_tool_args_system_prompt(), output_schema=OptimizedToolArgs)
             if isinstance(response, dict):
                 return response if response else initial_args
             return response.arguments
@@ -311,5 +312,5 @@ Task Plan:
         Include specific values, reference ranges, trends, and clinical implications.
         Flag any critical findings that require immediate attention.
         """
-        answer_obj = call_llm(answer_prompt, system_prompt=get_answer_system_prompt(), output_schema=Answer)
+        answer_obj = call_llm(answer_prompt, model=self.model_name, system_prompt=get_answer_system_prompt(), output_schema=Answer)
         return answer_obj.answer
