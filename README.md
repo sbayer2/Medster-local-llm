@@ -12,8 +12,9 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
 - **Privacy**: All medical data stays on your machine
 - **Speed**: No network latency for API calls
 - **Flexibility**: Works offline and supports any Ollama-compatible model
+- **NEW**: Choose between text-only (faster) or multimodal vision (images) at startup
 
-⚠️ **Important**: gpt-oss:20b is **text-only** - it cannot process medical images like X-rays, CT scans, or DICOM files (see [limitations](#important-limitation-text-only-model))
+💡 **Model Options**: Select at startup between gpt-oss:20b (text-only, faster) or qwen3-vl:8b (text + images for DICOM/ECG analysis) - see [Model Selection](#model-selection-text-only-vs-multimodal-vision)
 
 ## Core Capabilities
 
@@ -71,19 +72,28 @@ For **gpt-oss:120b** (advanced users):
 
 ## Installation
 
-### Step 1: Install Ollama
+### Step 1: Install Ollama and Models
 
 Download and install Ollama from [https://ollama.com/download](https://ollama.com/download)
 
-After installation, pull the gpt-oss:20b model:
+After installation, pull your preferred model(s):
+
+**Option 1: Text-only (faster, already downloaded)**
 ```bash
 ollama pull gpt-oss:20b
 ```
 
+**Option 2: Text + Vision (for DICOM/ECG image analysis)**
+```bash
+ollama pull qwen3-vl:8b
+```
+
+You can pull both models and choose at runtime!
+
 Verify installation:
 ```bash
 ollama list
-# Should show gpt-oss:20b in the list
+# Should show gpt-oss:20b and/or qwen3-vl:8b in the list
 ```
 
 ### Step 2: Clone the Repository
@@ -146,6 +156,42 @@ Or:
 ```bash
 python -m medster.cli
 ```
+
+### Model Selection
+
+At startup, you'll be prompted to choose your model:
+
+```
+======================================================================
+MODEL SELECTION
+======================================================================
+
+Choose your model:
+
+1. gpt-oss:20b (TEXT-ONLY)
+   - Faster inference
+   - Clinical reasoning, labs, notes, reports
+   - Cannot process medical images
+
+2. qwen3-vl:8b (TEXT + IMAGES)
+   - Multimodal vision support
+   - Can analyze DICOM images, ECG tracings, X-rays
+   - Slower inference
+
+======================================================================
+
+Enter your choice (1 or 2):
+```
+
+**Choose Option 1 (gpt-oss:20b)** for:
+- Text-based analysis (labs, reports, clinical notes)
+- Faster inference (~15-30 seconds per query)
+- Already downloaded and optimized for M4 Mac
+
+**Choose Option 2 (qwen3-vl:8b)** for:
+- Medical image analysis (X-rays, CT scans, DICOM files, ECG tracings)
+- Multimodal vision capabilities
+- Requires pulling the model first: `ollama pull qwen3-vl:8b`
 
 ### Example Queries
 
@@ -269,28 +315,42 @@ This is a **cost-saving fork** of the original [Medster](https://github.com/sbay
 
 | Feature | Original Medster | Medster-local-LLM |
 |---------|------------------|-------------------|
-| **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b (Local) |
-| **Modality** | **Multimodal** (text + images) | **Text-only** |
-| **Image Support** | ✅ X-rays, CT scans, ECGs, documents | ❌ Requires preprocessing |
+| **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b OR qwen3-vl:8b (Local) |
+| **Modality** | **Multimodal** (text + images) | **Selectable at startup** |
+| **Image Support** | ✅ X-rays, CT scans, ECGs, documents | ✅ With qwen3-vl:8b / ❌ gpt-oss:20b |
 | **Cost** | ~$3-15 per 1M tokens | $0 (100% local) |
 | **Privacy** | Data sent to Anthropic API | All data stays local |
-| **Speed** | Network latency | Local inference |
-| **Setup** | API key required | Ollama installation |
+| **Speed** | Fast (network latency) | Text-only: fast / Vision: slower |
+| **Setup** | API key required | Ollama + model pull |
 | **Hardware** | Any computer | 16GB+ RAM recommended |
 
-### Important Limitation: Text-Only Model
+### Model Selection: Text-Only vs. Multimodal Vision
 
-**gpt-oss:20b is a text-only model** - it cannot directly process medical images. This is a key difference from Claude Sonnet 4.5's multimodal capabilities.
+**NEW: Dual-model support!** Choose at startup between text-only and vision-capable models.
 
-**What this means for medical data:**
-- ✅ **Can process**: FHIR data, lab reports, clinical notes, vitals, medications, text-based ECG reports
-- ❌ **Cannot process**: DICOM images (X-rays, CT scans, MRIs), image-based ECGs, scanned documents, handwritten notes
+#### Option 1: gpt-oss:20b (TEXT-ONLY) ⚡
 
-**Workarounds for image data:**
-1. **Use radiology reports instead of images** - Extract text findings from DICOM metadata or reports
-2. **OCR preprocessing** - Convert scanned documents to text before analysis
-3. **Hybrid approach** - Use original Medster with Claude for image analysis, use Medster-local-LLM for text-based analysis
-4. **Local vision models** - Consider multimodal Ollama models like `llama3.2-vision:11b` or `llava:13b` (experimental)
+**Best for:**
+- ✅ FHIR data, lab reports, clinical notes, vitals, medications, text-based ECG reports
+- ✅ Faster inference (~15-30 seconds per query)
+- ✅ Already optimized for M4 Mac (MXFP4 quantization)
+
+**Cannot process:**
+- ❌ DICOM images (X-rays, CT scans, MRIs)
+- ❌ Image-based ECGs, scanned documents, handwritten notes
+
+#### Option 2: qwen3-vl:8b (TEXT + IMAGES) 🖼️
+
+**Best for:**
+- ✅ All text-based analysis (same as gpt-oss:20b)
+- ✅ **Medical image analysis**: X-rays, CT scans, DICOM files, ECG tracings
+- ✅ Scanned documents and handwritten notes
+
+**Trade-offs:**
+- ⚠️ Slower inference (vision processing overhead)
+- ⚠️ Requires model download: `ollama pull qwen3-vl:8b` (~4-5GB)
+
+**Recommendation:** Start with gpt-oss:20b for text analysis, switch to qwen3-vl:8b when you need image analysis
 
 **When to use which version:**
 
