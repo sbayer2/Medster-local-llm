@@ -37,11 +37,17 @@ env/
 .DS_Store
 Thumbs.db
 
-# Environment variables (contains API keys)
+# Environment variables (no API keys needed, but still private config)
 .env
+.env.local
+.env.*.local
 
 # Coherent Data Set (9GB - too large for GitHub)
 coherent_data/
+
+# Ollama models cache (if downloaded locally)
+.ollama/
+models/
 
 # Logs
 *.log
@@ -57,3 +63,6 @@ mcp_debug.log
 
 # Reference repositories (acknowledged in README)
 dexter-reference/
+
+# UV lock file (optional - some prefer to commit this)
+# uv.lock
