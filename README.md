@@ -1,10 +1,17 @@
-# Medster - Autonomous Clinical Case Analysis Agent
+# Medster-local-LLM - Autonomous Clinical Case Analysis Agent
 
-An autonomous agent for deep clinical case analysis, inspired by [Dexter](https://github.com/virattt/dexter) and adapted for medical domain.
+An autonomous agent for deep clinical case analysis powered by **local LLM (gpt-oss:20b)** - inspired by [Dexter](https://github.com/virattt/dexter) and adapted for medical domain with **zero API costs**.
 
 ## Overview
 
-Medster "thinks, plans, and learns as it works" - performing clinical analysis through task planning, self-reflection, and real-time medical data. It leverages SYNTHEA/FHIR data sources and integrates with your MCP medical analysis server for sophisticated clinical reasoning.
+Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical analysis through task planning, self-reflection, and real-time medical data. It leverages SYNTHEA/FHIR data sources and runs **entirely on your local machine** using OpenAI's gpt-oss:20b model via Ollama.
+
+### Why Local LLM?
+
+- **Cost Savings**: No API costs - runs 100% locally on your hardware
+- **Privacy**: All medical data stays on your machine
+- **Speed**: No network latency for API calls
+- **Flexibility**: Works offline and supports any Ollama-compatible model
 
 ## Core Capabilities
 
@@ -27,31 +34,66 @@ Medster "thinks, plans, and learns as it works" - performing clinical analysis t
           ┌─────────────┼─────────────┐
           ▼             ▼             ▼
     ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │ Coherent │  │   MCP    │  │ Claude   │
-    │ Data Set │  │  Server  │  │ Sonnet   │
-    │          │  │          │  │   4.5    │
-    │ FHIR     │  │ Analyze  │  │ Planning │
-    │ DICOM    │  │ Complex  │  │ Reasoning│
-    │ ECG/Notes│  │ Notes    │  │ Synthesis│
+    │ Coherent │  │  Ollama  │  │   MCP    │
+    │ Data Set │  │  Local   │  │  Server  │
+    │          │  │          │  │(optional)│
+    │ FHIR     │  │gpt-oss   │  │ Complex  │
+    │ DICOM    │  │  :20b    │  │ Analysis │
+    │ ECG/Notes│  │ Planning │  │          │
+    │          │  │ Reasoning│  │          │
     └──────────┘  └──────────┘  └──────────┘
+         │              │              │
+         └──────────────┴──────────────┘
+                        │
+              100% LOCAL - NO API COSTS
 ```
 
 ## Requirements
 
 - Python 3.10+
-- Anthropic API key (for Claude Sonnet 4.5)
+- **Ollama** installed locally (replaces Anthropic API)
+- **gpt-oss:20b** model (20B parameters - requires ~16GB RAM/VRAM)
 - FHIR server with patient data (default: HAPI FHIR test server)
 - Optional: Your MCP medical analysis server for complex note analysis
 
+### Hardware Requirements
+
+For **gpt-oss:20b** (recommended):
+- **16GB+ RAM** or unified memory (Apple Silicon Macs)
+- **CPU**: Modern multi-core processor
+- **GPU** (optional but recommended): Speeds up inference significantly
+
+For **gpt-oss:120b** (advanced users):
+- **60GB+ VRAM** or unified memory
+- Multi-GPU setup or high-end workstation
+
 ## Installation
 
-1. Clone the repository:
+### Step 1: Install Ollama
+
+Download and install Ollama from [https://ollama.com/download](https://ollama.com/download)
+
+After installation, pull the gpt-oss:20b model:
 ```bash
-git clone <your-repo-url>
-cd Medster
+ollama pull gpt-oss:20b
 ```
 
-2. Install dependencies using uv:
+Verify installation:
+```bash
+ollama list
+# Should show gpt-oss:20b in the list
+```
+
+### Step 2: Clone the Repository
+
+```bash
+git clone <your-repo-url>
+cd Medster-local-LLM
+```
+
+### Step 3: Install Python Dependencies
+
+Using uv (recommended):
 ```bash
 uv sync
 ```
@@ -61,31 +103,35 @@ Or with pip:
 pip install -e .
 ```
 
-3. Configure environment:
+### Step 4: Configure Environment
+
 ```bash
 cp env.example .env
 ```
 
-4. Get your Anthropic API key:
-   - Sign up at https://console.anthropic.com/
-   - Go to API Keys section
-   - Create a new API key
-   - Copy the key (starts with `sk-ant-`)
-
-5. Edit `.env` file with your credentials:
+Edit `.env` file with your configuration:
 ```bash
-# Required: Your Anthropic API key for Claude Sonnet 4.5
-ANTHROPIC_API_KEY=sk-ant-your_actual_key_here
+# Ollama Configuration (NO API KEY NEEDED!)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gpt-oss:20b
 
 # Required: Path to Coherent Data Set FHIR folder
 COHERENT_DATA_PATH=./coherent_data/fhir
 
 # Optional: Your MCP medical analysis server
 MCP_SERVER_URL=http://localhost:8000
-MCP_API_KEY=your_mcp_key_if_needed
 ```
 
-**⚠️ Security Note:** Never commit your `.env` file to git. It's already in `.gitignore` to protect your API keys.
+### Step 5: Download Coherent Data Set (Optional but Recommended)
+
+Download the 9GB Coherent Data Set from [https://synthea.mitre.org/downloads](https://synthea.mitre.org/downloads)
+
+Extract and set the path in your `.env` file:
+```bash
+COHERENT_DATA_PATH=./coherent_data/fhir
+```
+
+**✅ No API Keys Needed!** Everything runs locally on your machine.
 
 ## Usage
 
@@ -158,17 +204,37 @@ All data types are linked together via FHIR references.
 > Walonoski J, et al. The "Coherent Data Set": Combining Patient Data and Imaging in a Comprehensive, Synthetic Health Record. Electronics. 2022; 11(8):1199. https://doi.org/10.3390/electronics11081199
 
 ### MCP Medical Analysis Server
-For complex note analysis, Medster integrates with your FastMCP medical analysis server that uses Claude/Anthropic for sophisticated clinical reasoning.
+For complex note analysis, Medster-local-LLM can optionally integrate with your FastMCP medical analysis server.
 
 ## Configuration
 
-1. Download and extract the Coherent Data Set
-2. Set these environment variables in your `.env` file:
+1. **Install Ollama** and pull gpt-oss:20b (see Installation section)
+2. **Download and extract the Coherent Data Set** (optional but recommended)
+3. **Set environment variables** in your `.env` file:
 
 ```bash
-ANTHROPIC_API_KEY=your_key           # Required for Claude Sonnet 4.5
-COHERENT_DATA_PATH=./coherent_data/fhir  # Path to extracted FHIR data
-MCP_SERVER_URL=http://localhost:8000  # Your MCP server
+# Ollama (required - but NO API KEY!)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gpt-oss:20b
+
+# Data paths
+COHERENT_DATA_PATH=./coherent_data/fhir
+
+# MCP server (optional)
+MCP_SERVER_URL=http://localhost:8000
+```
+
+### Using Different Models
+
+You can use any Ollama-compatible model by changing the `OLLAMA_MODEL` variable:
+
+```bash
+# For the larger 120B model (requires 60GB+ RAM)
+OLLAMA_MODEL=gpt-oss:120b
+
+# For other open models
+OLLAMA_MODEL=llama3.1:70b
+OLLAMA_MODEL=qwen2.5:32b
 ```
 
 ## Safety & Disclaimer
@@ -195,13 +261,43 @@ Safety mechanisms include:
 - Loop detection (prevents repetitive actions)
 - Critical value flagging
 
+## Differences from Original Medster
+
+This is a **cost-saving fork** of the original [Medster](https://github.com/sbayer2/Medster) project:
+
+| Feature | Original Medster | Medster-local-LLM |
+|---------|------------------|-------------------|
+| **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b (Local) |
+| **Cost** | ~$3-15 per 1M tokens | $0 (100% local) |
+| **Privacy** | Data sent to Anthropic API | All data stays local |
+| **Speed** | Network latency | Local inference |
+| **Setup** | API key required | Ollama installation |
+| **Hardware** | Any computer | 16GB+ RAM recommended |
+
+**When to use which version:**
+
+- **Use Medster-local-LLM** if you want:
+  - Zero API costs
+  - Complete privacy
+  - Offline capability
+  - Local control
+
+- **Use Original Medster** if you want:
+  - Latest Claude models
+  - Fastest inference
+  - No local hardware requirements
+  - Cloud-based scaling
+
 ## License
 
 MIT License
 
 ## Acknowledgments
 
-- [Dexter](https://github.com/virattt/dexter) by @virattt - The original financial research agent that inspired this architecture. Medster adapts Dexter's proven multi-agent loop (planning → action → validation → synthesis) for the medical domain. A local reference copy of the Dexter codebase is maintained in `dexter-reference/` for architectural consultation during development.
+- [Medster](https://github.com/sbayer2/Medster) - The original Claude-powered clinical analysis agent this project is forked from
+- [Dexter](https://github.com/virattt/dexter) by @virattt - The original financial research agent that inspired this architecture. Medster adapts Dexter's proven multi-agent loop (planning → action → validation → synthesis) for the medical domain.
+- [OpenAI gpt-oss](https://openai.com/open-models) - Open-source reasoning models that make local LLM deployment viable
+- [Ollama](https://ollama.com) - Making local LLM deployment easy and accessible
 - [SYNTHEA](https://synthetichealth.github.io/synthea/) - Synthetic patient data generator
 - [HAPI FHIR](https://hapifhir.io/) - FHIR server implementation
 - [Coherent Data Set](https://synthea.mitre.org/downloads) - 9GB synthetic dataset integrating FHIR, DICOM, genomics, and ECG data for comprehensive multimodal medical AI research

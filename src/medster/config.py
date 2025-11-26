@@ -22,8 +22,9 @@ MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
 MCP_API_KEY = os.getenv("MCP_API_KEY")
 MCP_DEBUG = os.getenv("MCP_DEBUG", "false").lower() == "true"
 
-# API Keys
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# Ollama configuration (local LLM)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
 
 
 def get_absolute_path(relative_path: str) -> Path:
