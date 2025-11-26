@@ -12,7 +12,8 @@ from medster.tools.medical.api import (
 )
 from medster.config import (
     COHERENT_DICOM_PATH_ABS,
-    COHERENT_CSV_PATH_ABS
+    COHERENT_CSV_PATH_ABS,
+    get_selected_model
 )
 from medster.utils.image_utils import (
     dicom_to_base64_png,
@@ -362,7 +363,7 @@ def analyze_image_with_claude(image_base64: str, prompt: str) -> str:
         response = call_llm(
             prompt=prompt,
             images=[image_base64],
-            model="claude-sonnet-4.5"  # Use Sonnet 4.5 for vision analysis
+            model=get_selected_model()  # Use selected vision model
         )
 
         # Extract text content from response
@@ -540,7 +541,7 @@ def analyze_multiple_images_with_claude(images: List[str], prompt: str) -> str:
         response = call_llm(
             prompt=prompt,
             images=valid_images,
-            model="claude-sonnet-4.5"  # Use Sonnet 4.5 for vision analysis
+            model=get_selected_model()  # Use selected vision model
         )
 
         # Extract text content from response

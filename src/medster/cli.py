@@ -5,6 +5,7 @@ load_dotenv()
 
 from medster.agent import Agent
 from medster.utils.intro import print_intro
+from medster import config
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
@@ -41,6 +42,9 @@ def main():
             print("Invalid choice. Please enter 1 or 2.")
 
     print("="*70 + "\n")
+
+    # Set the selected model globally so tools can use it
+    config.set_selected_model(model_name)
 
     agent = Agent(model_name=model_name)
 

@@ -1,5 +1,5 @@
 """
-Vision analysis tool for medical images using Claude's vision API.
+Vision analysis tool for medical images using local vision models.
 """
 
 from langchain.tools import tool
@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 import json
 
 from medster.model import call_llm
+from medster import config
 from medster.tools.analysis.primitives import (
     load_ecg_image,
     load_dicom_image,
@@ -75,7 +76,7 @@ Provide a detailed analysis with specific findings."""
                 response = call_llm(
                     prompt=prompt,
                     images=[ecg_image],
-                    model="claude-sonnet-4.5"  # Use Sonnet 4.5 for vision analysis
+                    model=config.get_selected_model()  # Use selected vision model
                 )
                 custom_analysis = response.content if hasattr(response, 'content') else str(response)
                 result["custom_analysis"] = custom_analysis
@@ -189,11 +190,11 @@ For each image, provide:
 
 Format your response as structured findings for each image."""
 
-        # Call Claude vision API with Sonnet 4.5 for vision analysis
+        # Call local vision model for analysis
         response = call_llm(
             prompt=full_prompt,
             images=base64_images,
-            model="claude-sonnet-4.5"
+            model=config.get_selected_model()
         )
 
         # Extract text content from response

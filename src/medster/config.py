@@ -26,6 +26,18 @@ MCP_DEBUG = os.getenv("MCP_DEBUG", "false").lower() == "true"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
 
+# Runtime model selection (set by CLI at startup)
+_SELECTED_MODEL = None
+
+def set_selected_model(model_name: str):
+    """Set the runtime-selected model for the current session."""
+    global _SELECTED_MODEL
+    _SELECTED_MODEL = model_name
+
+def get_selected_model() -> str:
+    """Get the runtime-selected model, or fall back to default."""
+    return _SELECTED_MODEL or OLLAMA_MODEL
+
 
 def get_absolute_path(relative_path: str) -> Path:
     """
