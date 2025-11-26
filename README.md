@@ -1,10 +1,14 @@
 # Medster-local-LLM - Autonomous Clinical Case Analysis Agent
 
-An autonomous agent for deep clinical case analysis powered by **local LLM (gpt-oss:20b)** - inspired by [Dexter](https://github.com/virattt/dexter) and adapted for medical domain with **zero API costs**.
+An autonomous agent for deep clinical case analysis powered by **local LLMs** - inspired by [Dexter](https://github.com/virattt/dexter) and adapted for medical domain with **zero API costs**.
+
+**Choose Your Model at Startup:**
+- **gpt-oss:20b** (text-only) - Fast clinical reasoning for labs, notes, reports
+- **qwen3-vl:8b** (text + vision) - Multimodal analysis including DICOM images, ECG tracings, X-rays
 
 ## Overview
 
-Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical analysis through task planning, self-reflection, and real-time medical data. It leverages SYNTHEA/FHIR data sources and runs **entirely on your local machine** using OpenAI's gpt-oss:20b model via Ollama.
+Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical analysis through task planning, self-reflection, and real-time medical data. It leverages SYNTHEA/FHIR data sources and runs **entirely on your local machine** using local LLMs via Ollama.
 
 ### Why Local LLM?
 
@@ -39,34 +43,47 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
     ┌──────────┐  ┌──────────┐  ┌──────────┐
     │ Coherent │  │  Ollama  │  │   MCP    │
     │ Data Set │  │  Local   │  │  Server  │
-    │          │  │          │  │(optional)│
-    │ FHIR     │  │gpt-oss   │  │ Complex  │
-    │ Labs     │  │  :20b    │  │ Analysis │
-    │ Notes    │  │TEXT-ONLY │  │          │
-    │ Reports  │  │ Reasoning│  │          │
+    │          │  │  Models  │  │(optional)│
+    │ FHIR     │  │          │  │ Complex  │
+    │ Labs     │  │ Option 1:│  │ Analysis │
+    │ Notes    │  │gpt-oss   │  │          │
+    │ Reports  │  │  :20b    │  │          │
+    │ DICOM    │  │ (TEXT)   │  │          │
+    │ Images   │  │          │  │          │
+    │          │  │ Option 2:│  │          │
+    │          │  │qwen3-vl  │  │          │
+    │          │  │  :8b     │  │          │
+    │          │  │(VISION)  │  │          │
     └──────────┘  └──────────┘  └──────────┘
          │              │              │
          └──────────────┴──────────────┘
                         │
-        100% LOCAL - TEXT ONLY - NO API COSTS
+     100% LOCAL - DUAL MODEL SUPPORT - NO API COSTS
 ```
 
 ## Requirements
 
 - Python 3.10+
 - **Ollama** installed locally (replaces Anthropic API)
-- **gpt-oss:20b** model (20B parameters - requires ~16GB RAM/VRAM)
-- FHIR server with patient data (default: HAPI FHIR test server)
+- **Local LLM Model** (choose one or both):
+  - **gpt-oss:20b** (text-only, 20B params, ~16GB RAM) - Recommended for fast reasoning
+  - **qwen3-vl:8b** (multimodal vision, 8B params, ~6GB) - For image analysis
+- Coherent Data Set with FHIR/DICOM data (optional but recommended)
 - Optional: Your MCP medical analysis server for complex note analysis
 
 ### Hardware Requirements
 
-For **gpt-oss:20b** (recommended):
+**For gpt-oss:20b** (text-only, faster):
 - **16GB+ RAM** or unified memory (Apple Silicon Macs)
 - **CPU**: Modern multi-core processor
 - **GPU** (optional but recommended): Speeds up inference significantly
 
-For **gpt-oss:120b** (advanced users):
+**For qwen3-vl:8b** (multimodal vision):
+- **8GB+ RAM** or unified memory
+- **CPU/GPU**: Vision processing benefits from GPU acceleration
+- Lower RAM requirements than gpt-oss:20b (~6GB model size)
+
+**For gpt-oss:120b** (advanced users):
 - **60GB+ VRAM** or unified memory
 - Multi-GPU setup or high-end workstation
 
@@ -78,17 +95,23 @@ Download and install Ollama from [https://ollama.com/download](https://ollama.co
 
 After installation, pull your preferred model(s):
 
-**Option 1: Text-only (faster, already downloaded)**
+**Option 1: gpt-oss:20b (Text-Only, Faster)**
 ```bash
 ollama pull gpt-oss:20b
 ```
+- Best for: Lab analysis, clinical notes, medication reviews, text-based reasoning
+- Inference: ~15-30 seconds per query
+- Model size: ~16GB
 
-**Option 2: Text + Vision (for DICOM/ECG image analysis)**
+**Option 2: qwen3-vl:8b (Multimodal Vision)**
 ```bash
 ollama pull qwen3-vl:8b
 ```
+- Best for: DICOM images, ECG tracings, X-rays, CT scans, MRI analysis
+- Inference: Slower due to vision processing
+- Model size: ~6GB
 
-You can pull both models and choose at runtime!
+**💡 Pro Tip:** Pull both models and switch at runtime based on your analysis needs!
 
 Verify installation:
 ```bash
