@@ -26,9 +26,9 @@ from medster.tools.analysis.primitives import (
     load_dicom_image,
     load_ecg_image,
     get_dicom_metadata,
-    analyze_image_with_claude,
+    analyze_image_with_llm,
     analyze_ecg_for_rhythm,
-    analyze_multiple_images_with_claude,
+    analyze_multiple_images_with_llm,
     PRIMITIVES_SPEC
 )
 
@@ -91,9 +91,9 @@ def create_sandbox_globals(patient_limit: int) -> dict:
         "load_dicom_image": load_dicom_image,
         "load_ecg_image": load_ecg_image,
         "get_dicom_metadata": get_dicom_metadata,
-        "analyze_image_with_claude": analyze_image_with_claude,
+        "analyze_image_with_llm": analyze_image_with_llm,
         "analyze_ecg_for_rhythm": analyze_ecg_for_rhythm,
-        "analyze_multiple_images_with_claude": analyze_multiple_images_with_claude,
+        "analyze_multiple_images_with_llm": analyze_multiple_images_with_llm,
 
         # Safe built-ins
         "len": len,
@@ -178,7 +178,7 @@ def generate_and_run_analysis(
                 # Load and analyze ECG in one step
                 ecg = load_ecg_image(pid)
                 if ecg:
-                    afib_analysis = analyze_image_with_claude(
+                    afib_analysis = analyze_image_with_llm(
                         ecg,
                         f"Analyze this ECG for patient {{pid}}. Does it show atrial fibrillation pattern? Answer yes or no with key findings."
                     )
@@ -191,10 +191,10 @@ def generate_and_run_analysis(
     - Filtering: filter_by_text, filter_by_value
     - Aggregation: count_by_field, group_by_field, aggregate_numeric
     - Vision Loading: find_patient_images, load_dicom_image, load_ecg_image, get_dicom_metadata
-    - Vision Analysis: analyze_image_with_claude, analyze_multiple_images_with_claude
+    - Vision Analysis: analyze_image_with_llm, analyze_multiple_images_with_llm
 
     NOTE: You can now perform complete autonomous vision analysis within generated code!
-    Use analyze_image_with_claude() to analyze images directly in your code without
+    Use analyze_image_with_llm() to analyze images directly in your code without
     needing a separate tool call.
     """
     try:

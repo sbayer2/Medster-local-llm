@@ -40,7 +40,7 @@ def analyze_patient_ecg(
     clinical_context: str = ""
 ) -> dict:
     """
-    Analyze a patient's ECG image using Claude's vision API.
+    Analyze a patient's ECG image using the local vision model.
 
     This tool takes a patient_id and automatically loads their ECG image,
     then performs vision analysis to answer clinical questions about the ECG.
@@ -126,7 +126,7 @@ def analyze_medical_images(
     max_images: int = 3
 ) -> dict:
     """
-    Analyze medical images using Claude's vision API.
+    Analyze medical images using the local vision model.
 
     Use this tool when you have loaded base64-encoded images (DICOM, ECG, etc.)
     and need to analyze them for clinical findings.

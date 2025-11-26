@@ -335,9 +335,9 @@ def get_dicom_metadata_from_path(dicom_path: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def analyze_image_with_claude(image_base64: str, prompt: str) -> str:
+def analyze_image_with_llm(image_base64: str, prompt: str) -> str:
     """
-    Analyze a medical image using Claude's vision API.
+    Analyze a medical image using the local vision model.
 
     This primitive enables autonomous vision analysis within generated code.
     Use this after loading images with load_dicom_image() or load_ecg_image().
@@ -347,12 +347,12 @@ def analyze_image_with_claude(image_base64: str, prompt: str) -> str:
         prompt: Clinical question or analysis request (e.g., "Does this ECG show atrial fibrillation?")
 
     Returns:
-        Claude's vision analysis as text
+        Vision model analysis as text
 
     Example:
         ecg = load_ecg_image(patient_id)
         if ecg:
-            analysis = analyze_image_with_claude(
+            analysis = analyze_image_with_llm(
                 ecg,
                 "Analyze this ECG for atrial fibrillation pattern. Report yes/no and key findings."
             )
@@ -507,9 +507,9 @@ Be precise in your RHYTHM classification. Only state "Atrial Fibrillation" if yo
         }
 
 
-def analyze_multiple_images_with_claude(images: List[str], prompt: str) -> str:
+def analyze_multiple_images_with_llm(images: List[str], prompt: str) -> str:
     """
-    Analyze multiple medical images together using Claude's vision API.
+    Analyze multiple medical images together using the local vision model.
 
     Use this to compare images or analyze them in context of each other.
 
@@ -518,13 +518,13 @@ def analyze_multiple_images_with_claude(images: List[str], prompt: str) -> str:
         prompt: Clinical question or analysis request
 
     Returns:
-        Claude's vision analysis as text
+        Vision model analysis as text
 
     Example:
         images = [load_dicom_image(pid, 0) for pid in patient_ids]
         images = [img for img in images if img]  # Remove None values
         if images:
-            analysis = analyze_multiple_images_with_claude(
+            analysis = analyze_multiple_images_with_llm(
                 images,
                 "Compare these brain MRIs and identify any masses or hemorrhage."
             )
@@ -623,12 +623,12 @@ get_dicom_metadata(patient_id: str, image_index: int = 0) -> Dict
     # Returns: {"modality": str, "study_description": str, "body_part": str, "dimensions": str, ...}
     # Get DICOM metadata without loading pixel data (requires patient ID)
 
-analyze_image_with_claude(image_base64: str, prompt: str) -> str
-    # Analyze a single medical image using Claude vision API
+analyze_image_with_llm(image_base64: str, prompt: str) -> str
+    # Analyze a single medical image using local vision model
     # image_base64: Base64 PNG string from load_dicom_image() or load_ecg_image()
     # prompt: Clinical question (e.g., "Does this ECG show atrial fibrillation?")
     # Returns: Vision analysis as text
-    # Example: analysis = analyze_image_with_claude(ecg, "Detect AFib pattern")
+    # Example: analysis = analyze_image_with_llm(ecg, "Detect AFib pattern")
 
 analyze_ecg_for_rhythm(patient_id: str, clinical_context: str = "") -> Dict
     # RECOMMENDED FOR ECG RHYTHM ANALYSIS - Structured parsing prevents false positives
@@ -640,12 +640,12 @@ analyze_ecg_for_rhythm(patient_id: str, clinical_context: str = "") -> Dict
     # Example: result = analyze_ecg_for_rhythm(pid, "HTN + Hyperlipidemia")
     #          if result["afib_detected"]: print(f"AFib: {result['confidence']} confidence")
 
-analyze_multiple_images_with_claude(images: List[str], prompt: str) -> str
-    # Analyze multiple images together using Claude vision API
+analyze_multiple_images_with_llm(images: List[str], prompt: str) -> str
+    # Analyze multiple images together using local vision model
     # images: List of base64 PNG strings
     # prompt: Clinical question for comparative analysis
     # Returns: Vision analysis as text
-    # Example: analysis = analyze_multiple_images_with_claude([img1, img2], "Compare these MRIs")
+    # Example: analysis = analyze_multiple_images_with_llm([img1, img2], "Compare these MRIs")
 
 # Progress Logging
 log_progress(message: str) -> None
