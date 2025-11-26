@@ -147,15 +147,17 @@ COHERENT_DATA_PATH=./coherent_data/fhir
 
 ## Usage
 
-Run the interactive CLI:
+**Run the interactive CLI:**
 ```bash
-uv run medster-agent
+./run-medster.sh
 ```
 
-Or:
+Or directly with Python:
 ```bash
-python -m medster.cli
+PYTHONPATH=src uv run python -m medster.cli
 ```
+
+> **Note**: Due to a Python 3.13 + uv compatibility issue with .pth files, we use a launcher script instead of `uv run medster-agent`. This will be fixed in future releases.
 
 ### Model Selection
 
