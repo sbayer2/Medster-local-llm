@@ -13,6 +13,8 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
 - **Speed**: No network latency for API calls
 - **Flexibility**: Works offline and supports any Ollama-compatible model
 
+⚠️ **Important**: gpt-oss:20b is **text-only** - it cannot process medical images like X-rays, CT scans, or DICOM files (see [limitations](#important-limitation-text-only-model))
+
 ## Core Capabilities
 
 - **Intelligent Task Planning**: Breaks down complex clinical questions into structured diagnostic and therapeutic steps
@@ -38,14 +40,14 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
     │ Data Set │  │  Local   │  │  Server  │
     │          │  │          │  │(optional)│
     │ FHIR     │  │gpt-oss   │  │ Complex  │
-    │ DICOM    │  │  :20b    │  │ Analysis │
-    │ ECG/Notes│  │ Planning │  │          │
-    │          │  │ Reasoning│  │          │
+    │ Labs     │  │  :20b    │  │ Analysis │
+    │ Notes    │  │TEXT-ONLY │  │          │
+    │ Reports  │  │ Reasoning│  │          │
     └──────────┘  └──────────┘  └──────────┘
          │              │              │
          └──────────────┴──────────────┘
                         │
-              100% LOCAL - NO API COSTS
+        100% LOCAL - TEXT ONLY - NO API COSTS
 ```
 
 ## Requirements
@@ -268,11 +270,27 @@ This is a **cost-saving fork** of the original [Medster](https://github.com/sbay
 | Feature | Original Medster | Medster-local-LLM |
 |---------|------------------|-------------------|
 | **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b (Local) |
+| **Modality** | **Multimodal** (text + images) | **Text-only** |
+| **Image Support** | ✅ X-rays, CT scans, ECGs, documents | ❌ Requires preprocessing |
 | **Cost** | ~$3-15 per 1M tokens | $0 (100% local) |
 | **Privacy** | Data sent to Anthropic API | All data stays local |
 | **Speed** | Network latency | Local inference |
 | **Setup** | API key required | Ollama installation |
 | **Hardware** | Any computer | 16GB+ RAM recommended |
+
+### Important Limitation: Text-Only Model
+
+**gpt-oss:20b is a text-only model** - it cannot directly process medical images. This is a key difference from Claude Sonnet 4.5's multimodal capabilities.
+
+**What this means for medical data:**
+- ✅ **Can process**: FHIR data, lab reports, clinical notes, vitals, medications, text-based ECG reports
+- ❌ **Cannot process**: DICOM images (X-rays, CT scans, MRIs), image-based ECGs, scanned documents, handwritten notes
+
+**Workarounds for image data:**
+1. **Use radiology reports instead of images** - Extract text findings from DICOM metadata or reports
+2. **OCR preprocessing** - Convert scanned documents to text before analysis
+3. **Hybrid approach** - Use original Medster with Claude for image analysis, use Medster-local-LLM for text-based analysis
+4. **Local vision models** - Consider multimodal Ollama models like `llama3.2-vision:11b` or `llava:13b` (experimental)
 
 **When to use which version:**
 
@@ -281,8 +299,10 @@ This is a **cost-saving fork** of the original [Medster](https://github.com/sbay
   - Complete privacy
   - Offline capability
   - Local control
+  - Text-based analysis only
 
 - **Use Original Medster** if you want:
+  - **Multimodal support** (images, PDFs, scans)
   - Latest Claude models
   - Fastest inference
   - No local hardware requirements
