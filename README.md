@@ -30,7 +30,7 @@ uv sync
 
 # 4. Configure environment
 cp env.example .env
-# Edit .env to set COHERENT_DATA_PATH (optional)
+# Edit .env to set paths (see below for beta testing)
 
 # 5. Run CLI
 uv run medster-agent
@@ -39,6 +39,132 @@ uv run medster-agent
 ./run_dev.sh
 # Open http://localhost:3000
 ```
+
+> **🧪 Beta Testers**: You need the Coherent Data Set (9GB) to test clinical analysis features.
+> See [Beta Testing Setup](#-beta-testing-setup-coherent-data-set-required) below for complete database installation instructions.
+
+## 🧪 Beta Testing Setup (Coherent Data Set Required)
+
+**For beta testers**: To fully test Medster's clinical analysis capabilities, you need the Coherent Data Set with synthetic medical data.
+
+### Step-by-Step Database Setup
+
+**1. Download the Coherent Data Set**
+
+Download the complete 9GB dataset from MITRE SYNTHEA:
+- **Download link**: [https://synthea.mitre.org/downloads](https://synthea.mitre.org/downloads)
+- **File name**: `coherent-11-07-2022.zip` (9GB compressed)
+- **What's included**: FHIR patient records, DICOM images, ECG data, lab results, clinical notes
+
+**2. Extract the Dataset**
+
+```bash
+# Navigate to your Medster-local-LLM directory
+cd Medster-local-LLM
+
+# Extract the downloaded zip file
+unzip ~/Downloads/coherent-11-07-2022.zip
+
+# Rename the extracted folder (if needed)
+mv coherent coherent_data
+```
+
+**Expected directory structure after extraction:**
+```
+Medster-local-LLM/
+├── coherent_data/
+│   ├── fhir/           # 1,278 patient FHIR bundles (JSON files)
+│   ├── dicom/          # 298 brain MRI scans (~9GB)
+│   ├── csv/            # ECG waveforms and observations
+│   └── dna/            # Genomic data (889 CSV files)
+├── src/
+├── frontend/
+└── .env
+```
+
+**3. Configure Environment Variables**
+
+Edit your `.env` file to point to the Coherent data directories:
+
+```bash
+# Open .env file
+nano .env
+
+# Add these paths (use absolute paths for reliability):
+COHERENT_DATA_PATH=/Users/YOUR_USERNAME/Desktop/Medster-local-LLM/coherent_data/fhir
+COHERENT_DICOM_PATH=/Users/YOUR_USERNAME/Desktop/Medster-local-LLM/coherent_data/dicom
+COHERENT_CSV_PATH=/Users/YOUR_USERNAME/Desktop/Medster-local-LLM/coherent_data/csv
+COHERENT_DNA_PATH=/Users/YOUR_USERNAME/Desktop/Medster-local-LLM/coherent_data/dna
+```
+
+**4. Verify Database Setup**
+
+Run the verification script to confirm everything is configured correctly:
+
+```bash
+# Test FHIR data access
+uv run python test_coherent_path.py
+
+# Expected output:
+# ✓ FHIR path exists: ./coherent_data/fhir
+# ✓ Found 1278 patient bundles
+# ✓ Sample patient loaded successfully
+```
+
+**5. Test Vision Capabilities (Optional)**
+
+If using vision models (qwen3-vl:8b or ministral-3:8b), verify DICOM image access:
+
+```bash
+# Test DICOM image loading
+uv run python test_vision.py
+
+# Expected output:
+# ✓ DICOM path exists: ./coherent_data/dicom
+# ✓ Found 298 DICOM files
+# ✓ Sample image loaded and converted successfully
+```
+
+### Beta Testing Queries
+
+Once setup is complete, try these test queries:
+
+**Text-Only Analysis (gpt-oss:20b):**
+```
+"Analyze patient demographics and find the top 5 most common conditions"
+"Get lab results for patient 12345 and identify any critical values"
+"Find patients with both hypertension AND diabetes"
+```
+
+**Vision Analysis (qwen3-vl:8b or ministral-3:8b):**
+```
+"Find patients with brain MRI scans and analyze the imaging findings"
+"Analyze ECG waveforms for patients with atrial fibrillation"
+"Review DICOM images for patients with stroke diagnosis"
+```
+
+### Troubleshooting Database Setup
+
+**Issue**: `FileNotFoundError: coherent_data/fhir not found`
+
+**Solution**:
+1. Verify extraction: `ls -la coherent_data/fhir` should show JSON files
+2. Use absolute paths in `.env` instead of relative paths
+3. Check file permissions: `chmod -R 755 coherent_data`
+
+**Issue**: `No patient files found`
+
+**Solution**:
+1. Confirm you downloaded the correct zip file (coherent-11-07-2022.zip)
+2. Check FHIR folder contains .json files: `ls coherent_data/fhir/*.json | wc -l` should return 1278
+3. Re-extract if necessary
+
+**Issue**: DICOM images not loading
+
+**Solution**:
+1. Verify DICOM files exist: `ls coherent_data/dicom/*.dcm | wc -l` should return 298
+2. Install pydicom: `uv add pydicom pillow`
+3. Check COHERENT_DICOM_PATH in `.env` is correct
 
 ## Overview
 
