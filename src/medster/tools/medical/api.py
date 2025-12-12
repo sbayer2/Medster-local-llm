@@ -3,14 +3,15 @@ import json
 import glob
 from typing import Optional, List
 from pathlib import Path
+from medster import config
 
 ####################################
 # Coherent Data Set Configuration
 ####################################
 
-# Path to the Coherent Data Set FHIR bundles
-# Download from: https://synthea.mitre.org/downloads (Coherent Dataset: 9 GB)
-COHERENT_DATA_PATH = os.getenv("COHERENT_DATA_PATH", "./coherent_data/fhir")
+# Use centralized config for Coherent Data Set path
+# This ensures proper path resolution from .env file
+COHERENT_DATA_PATH = str(config.COHERENT_FHIR_PATH_ABS)
 
 # Cache for loaded patient data
 _patient_cache = {}

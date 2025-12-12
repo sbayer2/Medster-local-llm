@@ -442,7 +442,7 @@ Be precise in your RHYTHM classification. Only state "Atrial Fibrillation" if yo
         response = call_llm(
             prompt=prompt,
             images=[ecg_image],
-            model="claude-sonnet-4.5"  # Use Sonnet 4.5 for ECG analysis
+            model=get_selected_model()  # Use selected vision model (qwen3-vl:8b or ministral-3:8b)
         )
 
         raw_text = response.content if hasattr(response, 'content') else str(response)

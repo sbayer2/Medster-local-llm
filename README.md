@@ -2,9 +2,43 @@
 
 An autonomous agent for deep clinical case analysis powered by **local LLMs** - inspired by [Dexter](https://github.com/virattt/dexter) and adapted for medical domain with **zero API costs**.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-brightgreen)](https://ollama.com)
+
 **Choose Your Model at Startup:**
 - **gpt-oss:20b** (text-only) - Fast clinical reasoning for labs, notes, reports
 - **qwen3-vl:8b** (text + vision) - Multimodal analysis including DICOM images, ECG tracings, X-rays
+- **ministral-3:8b** (text + vision) - Alternative vision model with strong reasoning
+
+## 🚀 Quick Start
+
+```bash
+# 1. Install Ollama
+brew install ollama  # macOS
+# or download from https://ollama.com/download
+
+# 2. Pull a local LLM model
+ollama pull gpt-oss:20b  # Text-only (recommended to start)
+# OR
+ollama pull qwen3-vl:8b  # Text + Vision
+
+# 3. Clone and setup
+git clone https://github.com/sbayer/Medster-local-LLM.git
+cd Medster-local-LLM
+uv sync
+
+# 4. Configure environment
+cp env.example .env
+# Edit .env to set COHERENT_DATA_PATH (optional)
+
+# 5. Run CLI
+uv run medster-agent
+
+# OR run Web UI
+./run_dev.sh
+# Open http://localhost:3000
+```
 
 ## Overview
 
@@ -17,8 +51,9 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
 - **Speed**: No network latency for API calls
 - **Flexibility**: Works offline and supports any Ollama-compatible model
 - **NEW**: Choose between text-only (faster) or multimodal vision (images) at startup
+- **Dynamic Code Generation**: Agent writes custom Python code for complex analysis tasks
 
-💡 **Model Options**: Select at startup between gpt-oss:20b (text-only, faster) or qwen3-vl:8b (text + images for DICOM/ECG analysis) - see [Model Selection](#model-selection-text-only-vs-multimodal-vision)
+💡 **Model Options**: Select at startup between gpt-oss:20b (text-only, faster) or qwen3-vl:8b/ministral-3:8b (text + images for DICOM/ECG analysis) - see [Model Selection](#model-selection-text-only-vs-multimodal-vision)
 
 ## Core Capabilities
 
@@ -87,88 +122,218 @@ Medster-local-LLM "thinks, plans, and learns as it works" - performing clinical 
 - **60GB+ VRAM** or unified memory
 - Multi-GPU setup or high-end workstation
 
-## Installation
+## 📦 Installation
 
-### Step 1: Install Ollama and Models
+### Prerequisites
 
-Download and install Ollama from [https://ollama.com/download](https://ollama.com/download)
+- **Python 3.10+** - [Download](https://www.python.org/downloads/)
+- **Ollama** - [Download](https://ollama.com/download)
+- **uv** (recommended) or pip for dependency management
+- **Node.js 18+** (for Web UI) - [Download](https://nodejs.org/)
+- **16GB+ RAM** for gpt-oss:20b or **8GB+ RAM** for qwen3-vl:8b
 
-After installation, pull your preferred model(s):
+### Step 1: Install Ollama
 
-**Option 1: gpt-oss:20b (Text-Only, Faster)**
+**macOS:**
+```bash
+brew install ollama
+```
+
+**Linux:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Windows:**
+Download from [https://ollama.com/download](https://ollama.com/download)
+
+**Start Ollama service:**
+```bash
+ollama serve
+# Leave this running in a terminal
+```
+
+### Step 2: Pull Local LLM Models
+
+**Option 1: gpt-oss:20b (Text-Only, Recommended for Beginners)**
 ```bash
 ollama pull gpt-oss:20b
 ```
-- Best for: Lab analysis, clinical notes, medication reviews, text-based reasoning
-- Inference: ~15-30 seconds per query
-- Model size: ~16GB
+- **Best for**: Lab analysis, clinical notes, medication reviews, text-based reasoning
+- **Inference**: ~15-30 seconds per query
+- **Model size**: ~16GB
+- **RAM required**: 16GB+ (or unified memory on Apple Silicon)
 
 **Option 2: qwen3-vl:8b (Multimodal Vision)**
 ```bash
 ollama pull qwen3-vl:8b
 ```
-- Best for: DICOM images, ECG tracings, X-rays, CT scans, MRI analysis
-- Inference: Slower due to vision processing
-- Model size: ~6GB
+- **Best for**: DICOM images, ECG tracings, X-rays, CT scans, MRI analysis
+- **Inference**: Slower due to vision processing
+- **Model size**: ~6GB
+- **RAM required**: 8GB+
 
-**💡 Pro Tip:** Pull both models and switch at runtime based on your analysis needs!
+**Option 3: ministral-3:8b (Alternative Vision Model)**
+```bash
+ollama pull ministral-3:8b
+```
+- **Best for**: Balanced vision + reasoning capabilities
+- **Model size**: ~8GB
+- **RAM required**: 8GB+
 
-Verify installation:
+**💡 Pro Tip:** Pull all three models and switch at runtime based on your analysis needs!
+
+**Verify installation:**
 ```bash
 ollama list
-# Should show gpt-oss:20b and/or qwen3-vl:8b in the list
+# Should show gpt-oss:20b, qwen3-vl:8b, and/or ministral-3:8b
 ```
 
-### Step 2: Clone the Repository
+### Step 3: Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/sbayer/Medster-local-LLM.git
 cd Medster-local-LLM
 ```
 
-### Step 3: Install Python Dependencies
+### Step 4: Install Python Dependencies
 
-Using uv (recommended):
+**Using uv (Recommended - Fast):**
 ```bash
+# Install uv if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
 uv sync
 ```
 
-Or with pip:
+**Or using pip:**
 ```bash
 pip install -e .
 ```
 
-### Step 4: Configure Environment
+### Step 5: Configure Environment
 
 ```bash
 cp env.example .env
 ```
 
-Edit `.env` file with your configuration:
+**Edit `.env` file:**
 ```bash
 # Ollama Configuration (NO API KEY NEEDED!)
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=gpt-oss:20b  # or qwen3-vl:8b or ministral-3:8b
 
-# Required: Path to Coherent Data Set FHIR folder
+# Optional: Path to Coherent Data Set FHIR folder
+# Leave blank to use agent without medical data
 COHERENT_DATA_PATH=./coherent_data/fhir
 
-# Optional: Your MCP medical analysis server
+# Optional: DICOM/CSV paths for vision analysis
+COHERENT_DICOM_PATH=./coherent_data/dicom
+COHERENT_CSV_PATH=./coherent_data/csv
+
+# Optional: MCP medical analysis server
 MCP_SERVER_URL=http://localhost:8000
+MCP_API_KEY=your_api_key_here
+MCP_DEBUG=false  # Set to true for debugging
 ```
 
-### Step 5: Download Coherent Data Set (Optional but Recommended)
+### Step 6: Download Coherent Data Set (Optional but Recommended)
 
-Download the 9GB Coherent Data Set from [https://synthea.mitre.org/downloads](https://synthea.mitre.org/downloads)
+The Coherent Data Set provides realistic synthetic medical data for testing.
 
-Extract and set the path in your `.env` file:
+**Download** (9GB): [https://synthea.mitre.org/downloads](https://synthea.mitre.org/downloads)
+
+**Extract and configure:**
 ```bash
+# After downloading and extracting:
+unzip coherent-11-07-2022.zip
+mv coherent coherent_data
+
+# Update .env file:
 COHERENT_DATA_PATH=./coherent_data/fhir
+COHERENT_DICOM_PATH=./coherent_data/dicom
+COHERENT_CSV_PATH=./coherent_data/csv
 ```
+
+**What's included:**
+- 1,278 FHIR patient bundles with longitudinal records
+- 298 DICOM brain MRI scans (~9GB)
+- ECG waveforms in CSV format
+- Lab results, medications, conditions, procedures
+- Clinical notes and discharge summaries
 
 **✅ No API Keys Needed!** Everything runs locally on your machine.
 
-## Usage
+### Step 7: Install Frontend Dependencies (Optional - for Web UI)
+
+If you want to use the Web UI:
+
+```bash
+cd frontend
+npm install
+# or
+yarn install
+cd ..
+```
+
+## 🎯 Usage
+
+### Web Interface (Recommended)
+
+Medster-local-LLM includes a modern web interface built with Next.js and Tailwind CSS!
+
+**Option 1: Quick Start (Automated)**
+```bash
+./run_dev.sh
+```
+
+This script automatically:
+1. Starts FastAPI backend on `http://localhost:8000`
+2. Installs frontend dependencies (if needed)
+3. Starts Next.js frontend on `http://localhost:3000`
+
+**Option 2: Manual Start**
+
+**Terminal 1 - Backend:**
+```bash
+# Using uv
+uv run uvicorn medster.api:app --reload --host 0.0.0.0 --port 8000
+
+# Or using python directly
+python -m uvicorn medster.api:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd frontend
+npm run dev
+# or
+yarn dev
+```
+
+**Access the UI:**
+Open your browser to `http://localhost:3000`
+
+**Features:**
+- 🎨 Premium medical-themed UI with glassmorphism effects
+- 🔄 Real-time WebSocket streaming of agent responses
+- 🤖 Dynamic model selection (gpt-oss:20b, qwen3-vl:8b, ministral-3:8b)
+- 📊 Live status indicators showing agent planning, actions, and validation
+- 💬 Chat-based interaction with your local medical AI
+- 🔍 Task progress tracking with visual indicators
+- ⚡ Markdown rendering with syntax highlighting
+
+**API Documentation:**
+Visit `http://localhost:8000/docs` for interactive FastAPI documentation (Swagger UI).
+
+**API Endpoints:**
+- `POST /chat` - WebSocket endpoint for streaming agent responses
+- `POST /query` - REST endpoint for single queries
+- `GET /models` - List available Ollama models
+- `GET /health` - Health check endpoint
+
+### Command Line Interface
 
 Run the interactive CLI:
 ```bash
@@ -179,6 +344,13 @@ Or:
 ```bash
 python -m medster.cli
 ```
+
+**CLI Features:**
+- Interactive prompt with model selection
+- Streaming agent responses
+- Colored output for different agent phases
+- Task progress tracking
+- Exit with `/exit` or Ctrl+C
 
 ### Model Selection
 
@@ -277,36 +449,152 @@ All data types are linked together via FHIR references.
 ### MCP Medical Analysis Server
 For complex note analysis, Medster-local-LLM can optionally integrate with your FastMCP medical analysis server.
 
-## Configuration
+## ⚙️ Configuration
 
-1. **Install Ollama** and pull gpt-oss:20b (see Installation section)
-2. **Download and extract the Coherent Data Set** (optional but recommended)
-3. **Set environment variables** in your `.env` file:
+### Environment Variables
+
+All configuration is managed through the `.env` file:
 
 ```bash
-# Ollama (required - but NO API KEY!)
+# Ollama Configuration (NO API KEY NEEDED!)
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=gpt-oss:20b  # Default model (changed at startup)
 
-# Data paths
+# Coherent Data Set Paths (Optional)
 COHERENT_DATA_PATH=./coherent_data/fhir
+COHERENT_DICOM_PATH=./coherent_data/dicom
+COHERENT_CSV_PATH=./coherent_data/csv
+COHERENT_DNA_PATH=./coherent_data/dna
 
-# MCP server (optional)
+# MCP Server (Optional - for complex note analysis)
 MCP_SERVER_URL=http://localhost:8000
+MCP_API_KEY=your_api_key_here
+MCP_DEBUG=false  # Enable detailed MCP logging
+
+# Agent Configuration
+MAX_STEPS=20  # Maximum total steps per query
+MAX_STEPS_PER_TASK=5  # Maximum steps per individual task
 ```
 
 ### Using Different Models
 
-You can use any Ollama-compatible model by changing the `OLLAMA_MODEL` variable:
+You can use any Ollama-compatible model:
 
+**Large Reasoning Models:**
 ```bash
-# For the larger 120B model (requires 60GB+ RAM)
-OLLAMA_MODEL=gpt-oss:120b
-
-# For other open models
-OLLAMA_MODEL=llama3.1:70b
-OLLAMA_MODEL=qwen2.5:32b
+OLLAMA_MODEL=gpt-oss:120b  # 120B params (requires 60GB+ RAM)
+OLLAMA_MODEL=llama3.1:70b  # Meta's Llama 3.1 70B
+OLLAMA_MODEL=qwen2.5:32b   # Qwen 2.5 32B
 ```
+
+**Vision Models:**
+```bash
+OLLAMA_MODEL=qwen3-vl:8b      # Qwen3 Vision-Language
+OLLAMA_MODEL=ministral-3:8b   # Ministral Vision
+OLLAMA_MODEL=llava:13b        # LLaVA multimodal
+```
+
+**Note:** The agent will auto-detect model capabilities (text-only vs. vision) and adjust available tools accordingly.
+
+## 🔧 Troubleshooting
+
+### Ollama Not Running
+
+**Error:** `Connection refused to http://localhost:11434`
+
+**Solution:**
+```bash
+# Start Ollama service
+ollama serve
+
+# Or on macOS with brew:
+brew services start ollama
+```
+
+### Model Not Found
+
+**Error:** `model 'gpt-oss:20b' not found`
+
+**Solution:**
+```bash
+# Pull the model first
+ollama pull gpt-oss:20b
+
+# Verify it's installed
+ollama list
+```
+
+### Out of Memory
+
+**Error:** Agent crashes or becomes unresponsive
+
+**Solution:**
+1. Use a smaller model (qwen3-vl:8b instead of gpt-oss:20b)
+2. Close other applications to free up RAM
+3. Increase swap space (Linux) or virtual memory (Windows)
+4. Use CPU inference instead of GPU (slower but uses less VRAM)
+
+### WebSocket Connection Failed
+
+**Error:** Frontend shows "Connection failed" or "Cannot connect to backend"
+
+**Solution:**
+```bash
+# 1. Check backend is running
+curl http://localhost:8000/health
+
+# 2. Restart backend
+pkill -f "uvicorn medster.api"
+uv run uvicorn medster.api:app --reload --host 0.0.0.0 --port 8000
+
+# 3. Check firewall isn't blocking port 8000
+```
+
+### Frontend Dependencies Error
+
+**Error:** `Module not found` or `Cannot find module 'next'`
+
+**Solution:**
+```bash
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
+```
+
+### FHIR Data Not Loading
+
+**Error:** `FileNotFoundError: coherent_data/fhir not found`
+
+**Solution:**
+1. Download Coherent Data Set from https://synthea.mitre.org/downloads
+2. Extract to project directory
+3. Update `.env`:
+   ```bash
+   COHERENT_DATA_PATH=/absolute/path/to/coherent_data/fhir
+   ```
+
+### Agent Stuck in Loop
+
+**Error:** Agent repeats same actions without progress
+
+**Solution:**
+- The agent has built-in loop detection (max 3 consecutive errors)
+- Force quit with Ctrl+C and restart
+- Check logs for repeated error messages
+- Try a different model (gpt-oss:20b is more reliable for text tasks)
+
+### Vision Analysis Not Working
+
+**Error:** `Model does not support vision` or image analysis fails
+
+**Solution:**
+1. Ensure you selected a vision-capable model (qwen3-vl:8b or ministral-3:8b)
+2. Pull the vision model:
+   ```bash
+   ollama pull qwen3-vl:8b
+   ```
+3. Restart agent and select vision model at startup
 
 ## Safety & Disclaimer
 
@@ -317,35 +605,84 @@ OLLAMA_MODEL=qwen2.5:32b
 - Critical values and drug interactions are simplified checks
 - Use clinical judgment for all patient care decisions
 
-## Architecture Details
+## 🏗️ Architecture Details
 
-Medster preserves Dexter's proven multi-agent architecture:
+Medster implements a sophisticated multi-agent architecture with autonomous code generation and adaptive optimization:
 
-1. **Planning Module** - Decomposes clinical queries into tasks
-2. **Action Module** - Selects appropriate tools for data retrieval
-3. **Validation Module** - Verifies task completion
-4. **Synthesis Module** - Generates comprehensive clinical analysis
+### Core Agent Loop
 
-Safety mechanisms include:
-- Global step limits (default: 20)
-- Per-task step limits (default: 5)
-- Loop detection (prevents repetitive actions)
-- Critical value flagging
+1. **Planning Module** (`plan_tasks`)
+   - Decomposes complex clinical queries into structured task sequences
+   - Recognizes tool limitations (e.g., no allergy tool → use code generation)
+   - Implements batch analysis optimization (single task vs. list + analyze)
 
-## Differences from Original Medster
+2. **Action Module** (`ask_for_actions`)
+   - Intelligent tool selection based on task context
+   - **NEW:** Decision tree for dynamic code generation
+   - Detects when to write custom Python code vs. use existing tools
+   - Cross-task data access (all session outputs passed forward)
+
+3. **Validation Module** (`ask_if_done`)
+   - Single-task completion verification
+   - **NEW:** Incomplete results detection (triggers data structure exploration)
+   - Prevents false positives on "no data found" responses
+
+4. **Synthesis Module** (`_generate_answer`)
+   - Generates comprehensive clinical analysis
+   - Structured output with mandatory sections
+   - Token-efficient context management
+
+### Advanced Features
+
+**Dynamic Code Generation** (`generate_and_run_analysis`):
+- Agent writes custom Python code for tasks without dedicated tools
+- Sandboxed execution environment with FHIR primitives
+- Use cases: allergies, procedures, immunizations, complex AND/OR logic
+- Vision primitives for image analysis (DICOM, ECG waveforms)
+
+**Adaptive Optimization**:
+- Two-phase data discovery when results don't match expectations
+- Phase 1: Explore actual data structure (sample DICOM metadata, etc.)
+- Phase 2: Adapt code to match real data patterns
+- Example: Discovers Coherent DICOM uses Modality='OT' (not textbook 'MR')
+
+**Model Capability Registry** (`model_capabilities.py`):
+- Auto-detects model capabilities (text-only vs. vision)
+- Native tool calling vs. prompt-based tool selection
+- Enables seamless model switching at startup
+
+**Context Management** (`context_manager.py`):
+- Token-efficient output truncation (max 50K tokens)
+- Prioritizes recent outputs when context overflows
+- Prevents runaway token usage with large datasets
+
+### Safety Mechanisms
+
+- **Global step limit**: 20 steps (configurable via `MAX_STEPS`)
+- **Per-task step limit**: 5 steps (configurable via `MAX_STEPS_PER_TASK`)
+- **Loop detection**: Prevents repetitive tool calls (tracks last 4 actions)
+- **Error counter**: Max 3 consecutive errors before task completion
+- **Tool execution tracking**: All outputs accumulated in `task_outputs` list
+- **Critical value flagging**: Basic screening for abnormal lab values
+
+## 📊 Differences from Original Medster
 
 This is a **cost-saving fork** of the original [Medster](https://github.com/sbayer2/Medster) project:
 
 | Feature | Original Medster | Medster-local-LLM |
 |---------|------------------|-------------------|
-| **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b OR qwen3-vl:8b (Local) |
-| **Modality** | **Multimodal** (text + images) | **Selectable at startup** |
-| **Image Support** | ✅ X-rays, CT scans, ECGs, documents | ✅ With qwen3-vl:8b / ❌ gpt-oss:20b |
-| **Cost** | ~$3-15 per 1M tokens | $0 (100% local) |
-| **Privacy** | Data sent to Anthropic API | All data stays local |
-| **Speed** | Fast (network latency) | Text-only: fast / Vision: slower |
+| **LLM** | Claude Sonnet 4.5 (API) | gpt-oss:20b / qwen3-vl:8b / ministral-3:8b (Local) |
+| **Modality** | Multimodal (text + images) | **Selectable at startup** - text or vision |
+| **Image Support** | ✅ X-rays, CT, ECGs, documents | ✅ With qwen3-vl:8b or ministral-3:8b |
+| **Cost** | ~$3-15 per 1M tokens | **$0 (100% local)** |
+| **Privacy** | Data sent to Anthropic API | **All data stays local** |
+| **Speed** | Fast (~2-5s API latency) | Text: fast / Vision: slower (local inference) |
 | **Setup** | API key required | Ollama + model pull |
-| **Hardware** | Any computer | 16GB+ RAM recommended |
+| **Hardware** | Any computer | 8-16GB+ RAM recommended |
+| **Code Generation** | ❌ Fixed tools only | ✅ Dynamic Python code for custom tasks |
+| **Adaptive Optimization** | ❌ | ✅ Data structure discovery + adaptation |
+| **Model Flexibility** | Claude only | Any Ollama model (30+ options) |
+| **Web UI** | ❌ | ✅ Next.js + FastAPI WebSocket streaming |
 
 ### Model Selection: Text-Only vs. Multimodal Vision
 

@@ -364,12 +364,46 @@ Good: Task 1: "Analyze 100 patients for diabetes prevalence using analyze_batch_
 Bad: Task 1: "List 100 patients" → Task 2: "Analyze for diabetes"
 ```
 
-### MCP Task Detection
+### Code Generation for Missing Tools
 
-The agent detects MCP-required tasks via keyword matching in `ask_for_actions`:
-- Keywords: "mcp server", "mcp", "analyze_medical_document", "submit to mcp", "send to mcp"
-- When detected AND tool not yet called, adds explicit reminder to call `analyze_medical_document`
-- Tool must extract note text from previous outputs (e.g., `result['discharge_summary']['text']`)
+**CRITICAL:** When a task requires data without a dedicated tool (allergies, procedures, immunizations, etc.), use `generate_and_run_analysis` to write Python code.
+
+**Common Use Cases:**
+- **Allergies**: No `get_patient_allergies` tool exists → Use code generation
+- **Procedures**: No `get_patient_procedures` tool exists → Use code generation
+- **Immunizations**: No `get_patient_immunizations` tool exists → Use code generation
+- **Care Plans**: No dedicated tool → Use code generation
+
+**Example Code Pattern:**
+```python
+def analyze():
+    bundle = load_patient(patient_id)
+    allergies = search_resources(bundle, 'AllergyIntolerance')
+    formatted_allergies = []
+    for allergy in allergies:
+        formatted_allergies.append({
+            'allergen': allergy.get('code', {}).get('text', 'Unknown'),
+            'reaction': allergy.get('reaction', [{}])[0].get('manifestation', [{}])[0].get('text', 'Unknown'),
+            'severity': allergy.get('criticality', 'Unknown')
+        })
+    return {'patient_id': patient_id, 'allergies': formatted_allergies}
+```
+
+**Available FHIR Primitives:**
+- `load_patient(patient_id)` - Loads patient's full FHIR bundle
+- `search_resources(bundle, resource_type)` - Extracts resources by type (AllergyIntolerance, Procedure, Immunization, etc.)
+- `get_patients(limit)` - Gets list of patient IDs
+- `get_conditions(bundle)` - Gets conditions from bundle
+- `get_observations(bundle, category)` - Gets observations with optional category filter
+- `get_medications(bundle)` - Gets medications from bundle
+
+### MCP Server Integration (Optional)
+
+The MCP medical analysis server is **OPTIONAL** and only used when explicitly requested:
+- Only triggers when user query contains: "MCP server analysis", "send to MCP", or "use MCP"
+- If MCP connection fails, the agent gracefully continues without it
+- No automatic MCP task suggestions - local agent performs comprehensive analysis by default
+- Tool: `analyze_medical_document` available but not automatically invoked
 
 ### Argument Optimization
 
