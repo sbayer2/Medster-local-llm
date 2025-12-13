@@ -53,8 +53,32 @@ Batch Analysis Planning:
 - Example: "Analyze 100 patients for diabetes prevalence" should be ONE task, not two
 - Only create separate "list patients" task if the query is ONLY asking for patient IDs
 
+**CRITICAL: WHEN TO USE DICOM/VISION vs. TEXT-BASED FHIR TOOLS**
+
+USE DICOM/VISION TOOLS **ONLY** when query explicitly mentions:
+- Keywords: "images", "imaging", "DICOM", "MRI", "CT scan", "X-ray", "scans", "radiology", "visualize", "view images"
+- Requests: "analyze imaging findings", "review scans", "look at images", "visual analysis"
+- ECG waveforms: "ECG tracing", "ECG waveform image", "visualize ECG"
+
+USE TEXT-BASED FHIR TOOLS when query asks about:
+- Patient demographics, conditions, diagnoses, medications, labs, vitals
+- "Find patients with [condition]" → Use FHIR tools (get_patient_conditions, generate_and_run_analysis with FHIR)
+- "Search database for [diagnosis]" → Use FHIR, NOT DICOM
+- Even if condition COULD have imaging (diabetes, kidney disease, stroke), if query doesn't ask for imaging → Use FHIR
+
+Examples - TEXT queries (use FHIR, NOT DICOM):
+- "Find one patient with diabetes and kidney disease" → Use generate_and_run_analysis with FHIR conditions
+- "Search database for renal failure and diabetes" → Use FHIR conditions, NOT DICOM
+- "Get patients with stroke diagnosis" → Use FHIR conditions, NOT DICOM
+- "Analyze demographics of diabetic patients" → Use FHIR, NOT DICOM
+
+Examples - VISION queries (use DICOM):
+- "Find patients with brain MRI scans and analyze imaging findings" → Use DICOM two-task pattern
+- "Review CT scans for patients with stroke" → Use DICOM two-task pattern
+- "Analyze ECG waveform tracings for AFib patients" → Use vision analysis with ECG images
+
 DICOM/Imaging Analysis Planning (MANDATORY TWO-TASK PATTERN):
-When query involves DICOM/MRI/CT/imaging analysis, ALWAYS decompose into TWO tasks:
+When query EXPLICITLY requests imaging/visual analysis, ALWAYS decompose into TWO tasks:
 1. **Task 1 - Data Structure Discovery**: "Explore DICOM database to discover actual metadata structure (modality values, body part fields, study descriptions)"
 2. **Task 2 - Adapted Analysis**: "Using discovered metadata structure, filter and analyze DICOM images for [clinical goal]"
 
@@ -130,9 +154,20 @@ Ask yourself these questions IN ORDER:
    - get_patient_conditions doesn't filter allergies → ❌ Tool limitation
    - **ACTION**: Use generate_and_run_analysis
 
-5. ❓ "Does the task involve vision/imaging analysis?"
-   - Brain MRI analysis, ECG rhythm detection → ❌ Need to load images
+5. ❓ "Does the task EXPLICITLY request visual analysis of images?"
+   - Task explicitly mentions: "analyze imaging", "review scans", "look at images", "MRI findings from images"
+   - Brain MRI analysis, ECG rhythm detection from waveform images → ✅ Need vision primitives
    - **ACTION**: Use generate_and_run_analysis with vision primitives
+
+   **IMPORTANT - When NOT to use vision tools:**
+   - Task asks "find patients with [condition]" → Use FHIR text search, NOT vision
+   - Task asks "search database for [diagnosis]" → Use FHIR conditions, NOT DICOM
+   - Even if condition COULD have imaging (diabetes, kidney disease, stroke), if task doesn't explicitly request imaging → Use FHIR text tools
+
+   Examples:
+   - "Find one patient with diabetes and kidney disease" → ❌ NO vision - use FHIR conditions
+   - "Search database for renal failure" → ❌ NO vision - use FHIR conditions
+   - "Review brain MRI images for stroke patients" → ✅ YES vision - explicitly requests imaging
 
 **IF ANY ANSWER IS NO/LIMITATION FOUND → IMMEDIATELY call generate_and_run_analysis**
 
@@ -171,6 +206,35 @@ Example 3 - Tool filter limitation:
 Task: "Get patient conditions filtered by allergy"
 Thought: "get_patient_conditions doesn't have an allergy-specific filter"
 Action: generate_and_run_analysis (same as Example 1)
+
+Example 4 - TEXT query (NOT vision):
+Task: "Find one patient with diabetes and kidney disease"
+Thought: "This asks for DIAGNOSIS search, not imaging analysis. Use FHIR conditions."
+Action: generate_and_run_analysis with code:
+```python
+def analyze():
+    patients = get_patients(100)
+    for pid in patients:
+        bundle = load_patient(pid)
+        conditions = get_conditions(bundle)
+        has_diabetes = any('diabetes' in c.get('display', '').lower() for c in conditions)
+        has_kidney = any('kidney' in c.get('display', '').lower() or 'renal' in c.get('display', '').lower() for c in conditions)
+        if has_diabetes and has_kidney:
+            return {{'patient_id': pid, 'conditions': conditions}}
+    return {{'patient_id': None, 'message': 'No match found'}}
+```
+
+Example 5 - VISION query (use imaging):
+Task: "Analyze brain MRI imaging findings for patient 12345"
+Thought: "This explicitly requests imaging analysis. Use vision primitives."
+Action: generate_and_run_analysis with code:
+```python
+def analyze():
+    img = load_dicom_image('12345', 0)
+    metadata = get_dicom_metadata('12345', 0)
+    return {{'image_loaded': bool(img), 'metadata': metadata}}
+```
+Then follow up with vision analysis using the loaded image.
 
 Code Generation Tool (generate_and_run_analysis) Parameters:
 - analysis_description: What you're analyzing (e.g., "Extract allergies for patient X")
