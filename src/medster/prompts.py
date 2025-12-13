@@ -377,42 +377,42 @@ When NOT to call tools:
 If using prompt-based tool calling (qwen3-vl:8b, models without native tool support), you MUST respond with ONLY a JSON object in this EXACT format:
 
 ```json
-{
+{{
     "reasoning": "Brief explanation of why you chose this tool and these arguments",
     "tool_name": "exact_tool_name_from_available_tools",
-    "tool_args": {
+    "tool_args": {{
         "argument1": "value1",
         "argument2": "value2"
-    }
-}
+    }}
+}}
 ```
 
 **RULES for JSON output:**
 1. tool_name MUST exactly match an available tool name (e.g., "generate_and_run_analysis", "get_patient_labs")
 2. tool_args MUST contain ALL required parameters for that tool
 3. Output ONLY the JSON object - no markdown, no explanations outside the JSON
-4. If no tool is needed, use: `{"reasoning": "explanation", "tool_name": null, "tool_args": {}}`
+4. If no tool is needed, use: `{{"reasoning": "explanation", "tool_name": null, "tool_args": {{}}}}`
 
 **Example - Calling generate_and_run_analysis:**
 ```json
-{
+{{
     "reasoning": "Need to find patients with both diabetes and kidney disease using FHIR conditions with AND logic",
     "tool_name": "generate_and_run_analysis",
-    "tool_args": {
+    "tool_args": {{
         "analysis_description": "Find one patient with diabetes and kidney disease",
-        "code": "def analyze():\\n    patients = get_patients(100)\\n    for pid in patients:\\n        bundle = load_patient(pid)\\n        conditions = get_conditions(bundle)\\n        has_diabetes = any('diabetes' in c.get('display', '').lower() for c in conditions)\\n        has_kidney = any('kidney' in c.get('display', '').lower() or 'renal' in c.get('display', '').lower() for c in conditions)\\n        if has_diabetes and has_kidney:\\n            return {'patient_id': pid, 'conditions': conditions}\\n    return {'patient_id': None, 'message': 'No match found'}",
+        "code": "def analyze():\\n    patients = get_patients(100)\\n    for pid in patients:\\n        bundle = load_patient(pid)\\n        conditions = get_conditions(bundle)\\n        has_diabetes = any('diabetes' in c.get('display', '').lower() for c in conditions)\\n        has_kidney = any('kidney' in c.get('display', '').lower() or 'renal' in c.get('display', '').lower() for c in conditions)\\n        if has_diabetes and has_kidney:\\n            return {{'patient_id': pid, 'conditions': conditions}}\\n    return {{'patient_id': None, 'message': 'No match found'}}",
         "patient_limit": 100
-    }
-}
+    }}
+}}
 ```
 
 **Example - No tool needed:**
 ```json
-{
+{{
     "reasoning": "Previous outputs already contain all the patient conditions needed to complete this task",
     "tool_name": null,
-    "tool_args": {}
-}
+    "tool_args": {{}}
+}}
 ```
 
 If you determine no tool call is needed, return the null format shown above. Otherwise, return a valid tool call in the exact JSON format specified."""
