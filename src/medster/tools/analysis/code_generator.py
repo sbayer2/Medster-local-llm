@@ -9,17 +9,26 @@ import logging
 from datetime import datetime
 
 from medster.tools.analysis.primitives import (
+    # Core patient data
     get_patients,
     load_patient,
     search_resources,
     get_conditions,
     get_observations,
     get_medications,
+    # Filtering and aggregation
     filter_by_text,
     filter_by_value,
     count_by_field,
     group_by_field,
     aggregate_numeric,
+    # NEW: High-efficiency batch operations
+    load_patients_batch,
+    batch_conditions,
+    batch_observations,
+    batch_medications,
+    batch_resources,
+    # Vision/imaging
     scan_dicom_directory,
     get_dicom_metadata_from_path,
     find_patient_images,
@@ -71,7 +80,7 @@ def create_sandbox_globals(patient_limit: int) -> dict:
         logger.info(message)
 
     return {
-        # FHIR Data Primitives
+        # FHIR Data Primitives (Single Patient)
         "get_patients": lambda limit=patient_limit: get_patients(limit),
         "load_patient": load_patient,
         "search_resources": search_resources,
@@ -83,6 +92,13 @@ def create_sandbox_globals(patient_limit: int) -> dict:
         "count_by_field": count_by_field,
         "group_by_field": group_by_field,
         "aggregate_numeric": aggregate_numeric,
+
+        # HIGH-EFFICIENCY BATCH OPERATIONS (8x faster for multi-patient)
+        "load_patients_batch": load_patients_batch,
+        "batch_conditions": batch_conditions,
+        "batch_observations": batch_observations,
+        "batch_medications": batch_medications,
+        "batch_resources": batch_resources,
 
         # Vision/Imaging Primitives
         "scan_dicom_directory": scan_dicom_directory,

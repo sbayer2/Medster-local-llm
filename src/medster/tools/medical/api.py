@@ -1,7 +1,10 @@
 import os
 import json
 import glob
-from typing import Optional, List
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from typing import Optional, List, Dict, Any, Callable
 from pathlib import Path
 from medster import config
 
@@ -13,8 +16,14 @@ from medster import config
 # This ensures proper path resolution from .env file
 COHERENT_DATA_PATH = str(config.COHERENT_FHIR_PATH_ABS)
 
-# Cache for loaded patient data
-_patient_cache = {}
+# Thread pool for async I/O operations
+_executor = ThreadPoolExecutor(max_workers=8)
+
+# Cache for loaded patient data (simple dict cache)
+_patient_cache: Dict[str, dict] = {}
+
+# Cache for patient ID list (computed once)
+_patient_list_cache: Optional[List[str]] = None
 
 
 def load_patient_bundle(patient_id: str) -> Optional[dict]:
@@ -56,6 +65,7 @@ def load_patient_bundle(patient_id: str) -> Optional[dict]:
 def list_available_patients(limit: Optional[int] = None) -> List[str]:
     """
     List available patient IDs in the Coherent Data Set.
+    Uses caching to avoid repeated filesystem scans.
 
     Args:
         limit: Maximum number of patients to return. None returns all patients.
@@ -63,6 +73,14 @@ def list_available_patients(limit: Optional[int] = None) -> List[str]:
     Returns:
         List of patient IDs
     """
+    global _patient_list_cache
+
+    # Return from cache if available
+    if _patient_list_cache is not None:
+        if limit is not None:
+            return _patient_list_cache[:limit]
+        return _patient_list_cache
+
     data_path = Path(COHERENT_DATA_PATH)
     if not data_path.exists():
         return []
@@ -84,11 +102,293 @@ def list_available_patients(limit: Optional[int] = None) -> List[str]:
         except:
             patient_ids.append(json_file.stem)
 
-        # Only apply limit if specified
-        if limit is not None and len(patient_ids) >= limit:
-            break
+    # Cache the full list
+    _patient_list_cache = patient_ids
 
+    if limit is not None:
+        return patient_ids[:limit]
     return patient_ids
+
+
+####################################
+# Async Operations for Concurrency
+####################################
+
+async def load_patient_bundle_async(patient_id: str) -> Optional[dict]:
+    """
+    Async version of load_patient_bundle for concurrent loading.
+
+    Args:
+        patient_id: The patient's unique identifier
+
+    Returns:
+        dict: FHIR Bundle containing all patient resources, or None if not found
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_executor, load_patient_bundle, patient_id)
+
+
+async def load_multiple_patients_async(patient_ids: List[str]) -> Dict[str, Optional[dict]]:
+    """
+    Load multiple patient bundles concurrently.
+
+    Args:
+        patient_ids: List of patient IDs to load
+
+    Returns:
+        Dict mapping patient_id -> bundle (or None if not found)
+    """
+    tasks = [load_patient_bundle_async(pid) for pid in patient_ids]
+    results = await asyncio.gather(*tasks)
+    return dict(zip(patient_ids, results))
+
+
+def load_multiple_patients_sync(patient_ids: List[str]) -> Dict[str, Optional[dict]]:
+    """
+    Load multiple patient bundles concurrently (sync wrapper for async).
+    Use this in non-async contexts like the sandbox.
+
+    Args:
+        patient_ids: List of patient IDs to load
+
+    Returns:
+        Dict mapping patient_id -> bundle (or None if not found)
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If we're already in an async context, use thread pool directly
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(load_patient_bundle, patient_ids))
+            return dict(zip(patient_ids, results))
+        else:
+            return loop.run_until_complete(load_multiple_patients_async(patient_ids))
+    except RuntimeError:
+        # No event loop exists, create one
+        return asyncio.run(load_multiple_patients_async(patient_ids))
+
+
+####################################
+# Batch FHIR Operations
+####################################
+
+def batch_extract_conditions(patient_ids: List[str], condition_filter: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Extract conditions from multiple patients in a single batch operation.
+
+    Args:
+        patient_ids: List of patient IDs to analyze
+        condition_filter: Optional text filter for condition names (case-insensitive)
+
+    Returns:
+        Dict with aggregated condition data:
+        {
+            "patients_analyzed": int,
+            "patients_with_matches": int,
+            "condition_counts": {condition_name: count},
+            "patient_conditions": {patient_id: [conditions]}
+        }
+    """
+    # Load all bundles concurrently
+    bundles = load_multiple_patients_sync(patient_ids)
+
+    condition_counts: Dict[str, int] = {}
+    patient_conditions: Dict[str, List[dict]] = {}
+    patients_with_matches = 0
+
+    for pid, bundle in bundles.items():
+        if not bundle:
+            continue
+
+        conditions = extract_conditions(bundle)
+
+        # Apply filter if specified
+        if condition_filter:
+            filter_lower = condition_filter.lower()
+            conditions = [c for c in conditions if filter_lower in c.get("name", "").lower()]
+
+        if conditions:
+            patients_with_matches += 1
+            patient_conditions[pid] = conditions
+
+            for cond in conditions:
+                name = cond.get("name", "Unknown")
+                condition_counts[name] = condition_counts.get(name, 0) + 1
+
+    # Sort condition counts by frequency
+    sorted_counts = dict(sorted(condition_counts.items(), key=lambda x: x[1], reverse=True))
+
+    return {
+        "patients_analyzed": len(patient_ids),
+        "patients_with_matches": patients_with_matches,
+        "condition_counts": sorted_counts,
+        "patient_conditions": patient_conditions
+    }
+
+
+def batch_extract_observations(
+    patient_ids: List[str],
+    category: Optional[str] = None,
+    code_filter: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Extract observations from multiple patients in a single batch operation.
+
+    Args:
+        patient_ids: List of patient IDs to analyze
+        category: Optional FHIR category filter ('laboratory', 'vital-signs')
+        code_filter: Optional text filter for observation codes
+
+    Returns:
+        Dict with aggregated observation data
+    """
+    bundles = load_multiple_patients_sync(patient_ids)
+
+    observation_counts: Dict[str, int] = {}
+    patient_observations: Dict[str, List[dict]] = {}
+    numeric_values: Dict[str, List[float]] = {}  # For aggregation
+
+    for pid, bundle in bundles.items():
+        if not bundle:
+            continue
+
+        observations = extract_observations(bundle)
+
+        # Apply category filter
+        if category:
+            observations = [o for o in observations if category.lower() in [c.lower() for c in o.get("category", [])]]
+
+        # Apply code filter
+        if code_filter:
+            filter_lower = code_filter.lower()
+            observations = [o for o in observations if filter_lower in o.get("code", "").lower()]
+
+        if observations:
+            patient_observations[pid] = observations
+
+            for obs in observations:
+                code = obs.get("code", "Unknown")
+                observation_counts[code] = observation_counts.get(code, 0) + 1
+
+                # Collect numeric values for aggregation
+                value = obs.get("value")
+                if isinstance(value, (int, float)):
+                    if code not in numeric_values:
+                        numeric_values[code] = []
+                    numeric_values[code].append(float(value))
+
+    # Calculate statistics for numeric observations
+    numeric_stats: Dict[str, Dict[str, float]] = {}
+    for code, values in numeric_values.items():
+        if values:
+            numeric_stats[code] = {
+                "count": len(values),
+                "min": min(values),
+                "max": max(values),
+                "mean": sum(values) / len(values),
+            }
+
+    return {
+        "patients_analyzed": len(patient_ids),
+        "patients_with_data": len(patient_observations),
+        "observation_counts": dict(sorted(observation_counts.items(), key=lambda x: x[1], reverse=True)),
+        "numeric_stats": numeric_stats,
+        "patient_observations": patient_observations
+    }
+
+
+def batch_extract_medications(patient_ids: List[str], medication_filter: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Extract medications from multiple patients in a single batch operation.
+
+    Args:
+        patient_ids: List of patient IDs to analyze
+        medication_filter: Optional text filter for medication names
+
+    Returns:
+        Dict with aggregated medication data
+    """
+    bundles = load_multiple_patients_sync(patient_ids)
+
+    medication_counts: Dict[str, int] = {}
+    patient_medications: Dict[str, List[dict]] = {}
+
+    for pid, bundle in bundles.items():
+        if not bundle:
+            continue
+
+        medications = extract_medications(bundle)
+
+        # Apply filter if specified
+        if medication_filter:
+            filter_lower = medication_filter.lower()
+            medications = [m for m in medications if filter_lower in m.get("medication", "").lower()]
+
+        if medications:
+            patient_medications[pid] = medications
+
+            for med in medications:
+                name = med.get("medication", "Unknown")
+                medication_counts[name] = medication_counts.get(name, 0) + 1
+
+    return {
+        "patients_analyzed": len(patient_ids),
+        "patients_with_medications": len(patient_medications),
+        "medication_counts": dict(sorted(medication_counts.items(), key=lambda x: x[1], reverse=True)),
+        "patient_medications": patient_medications
+    }
+
+
+def batch_search_resources(
+    patient_ids: List[str],
+    resource_type: str,
+    filter_fn: Optional[Callable[[dict], bool]] = None
+) -> Dict[str, Any]:
+    """
+    Search for any FHIR resource type across multiple patients.
+
+    Args:
+        patient_ids: List of patient IDs to search
+        resource_type: FHIR resource type (e.g., 'AllergyIntolerance', 'Procedure', 'Immunization')
+        filter_fn: Optional function to filter resources (receives resource dict, returns bool)
+
+    Returns:
+        Dict with search results per patient
+    """
+    bundles = load_multiple_patients_sync(patient_ids)
+
+    results: Dict[str, List[dict]] = {}
+    total_found = 0
+
+    for pid, bundle in bundles.items():
+        if not bundle:
+            continue
+
+        resources = []
+        for entry in bundle.get("entry", []):
+            resource = entry.get("resource", {})
+            if resource.get("resourceType") == resource_type:
+                if filter_fn is None or filter_fn(resource):
+                    resources.append(resource)
+
+        if resources:
+            results[pid] = resources
+            total_found += len(resources)
+
+    return {
+        "resource_type": resource_type,
+        "patients_searched": len(patient_ids),
+        "patients_with_results": len(results),
+        "total_resources_found": total_found,
+        "results": results
+    }
+
+
+def clear_cache():
+    """Clear all caches. Useful for testing or when data changes."""
+    global _patient_cache, _patient_list_cache
+    _patient_cache = {}
+    _patient_list_cache = None
 
 
 def search_fhir(resource_type: str, **search_params) -> dict:
