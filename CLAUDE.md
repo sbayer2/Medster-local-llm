@@ -481,132 +481,45 @@ All FHIR parsing happens in `tools/medical/api.py`:
 When using the Coherent Data Set:
 
 > Walonoski J, et al. The "Coherent Data Set": Combining Patient Data and Imaging in a Comprehensive, Synthetic Health Record. Electronics. 2022; 11(8):1199. https://doi.org/10.3390/electronics11081199
-- Should we proceed with this revised approach? It's much cleaner and fits
-  Medster's philosophy of dynamic code generation!
 
-> yes lets plan again and proceed with this revised approach, your insights 
-are really good for the tool management and token efficient primitives  ,  
-but dont forget the to explore the data structures in the database , up date
- the env for the data extraction 
+## Session Notes (2025-12-15)
 
-⏺ Excellent! Let's create a comprehensive revised plan and then proceed with
-   implementation.
+### qwen3-vl:8b Prompt Fixes
 
-⏺ 📋 REVISED PLAN: Token-Efficient Vision Analysis via Primitives
+**Problem:** Vision model was incorrectly triggering DICOM analysis for text queries like "find patients with diabetes and kidney disease".
 
-  ---
-  Step 1: Explore Coherent Data Set Structure 🔍
+**Solution (prompts.py):**
+1. Added "WHEN TO USE DICOM/VISION vs. TEXT-BASED FHIR TOOLS" section to PLANNING_SYSTEM_PROMPT
+2. Vision tools ONLY for queries with keywords: "images", "imaging", "DICOM", "MRI", "CT scan", "scans"
+3. Text queries like "find patients with [condition]" → Use FHIR, NOT DICOM
+4. Added concrete examples contrasting text vs. vision queries
 
-  Goal: Understand the actual file formats and naming conventions
+**Prompt-Based Tool Calling JSON Format:**
+Added explicit OUTPUT FORMAT section to ACTION_SYSTEM_PROMPT for qwen3-vl:8b:
+```json
+{{
+    "reasoning": "explanation",
+    "tool_name": "generate_and_run_analysis",
+    "tool_args": {{ "analysis_description": "...", "code": "...", "patient_limit": 100 }}
+}}
+```
+Note: All curly braces MUST be doubled (`{{` and `}}`) to escape LangChain template variables.
 
-  Actions:
-  - Examine sample DICOM files (structure, pixel data location)
-  - Check for ECG images vs ECG data files
-  - Map patient IDs to imaging files
-  - Document file formats and sizes
-  - Check FHIR bundles for imaging references
+### Frontend Updates
+- Next.js: 15.0.0 → 15.1.4
+- React: 18.3.1 → 19.0.0
+- All devDependencies updated to latest
 
-  Deliverable: Data structure documentation for implementation
+### Key Files Modified
+- `src/medster/prompts.py` - Vision vs text tool selection, JSON output format
+- `src/medster/tools/analysis/primitives.py` - All vision functions use `get_selected_model()`
+- `frontend/package.json` - Updated to React 19, Next.js 15.1.4
+- `README.md` - Beta testing setup guide with Coherent Data Set instructions
+- `env.example` - All COHERENT_*_PATH variables documented
 
-  ---
-  Step 2: Update Environment Configuration ⚙️
-
-  Goal: Make all multimodal data paths accessible
-
-  Actions:
-  - Update .env with multimodal paths
-  - Create src/medster/config.py for centralized path management
-  - Test path loading
-
-  Files Modified:
-  - .env
-  - src/medster/config.py (new)
-
-  ---
-  Step 3: Create Image Conversion Utilities 🖼️
-
-  Goal: Lightweight, token-efficient image converters
-
-  Actions:
-  - Create src/medster/utils/image_utils.py
-  - Implement DICOM → base64 PNG converter (minimal dependencies)
-  - Implement image optimizer (resize, compress)
-  - Handle ECG format conversion
-
-  Files Created:
-  - src/medster/utils/image_utils.py
-
-  ---
-  Step 4: Add Vision Primitives 🔧
-
-  Goal: Extend primitives.py with vision helpers
-
-  Actions:
-  - Add load_patient_dicom_image() primitive
-  - Add load_patient_ecg_image() primitive
-  - Add find_patient_image_files() primitive
-  - Add analyze_image_with_claude() primitive
-
-  Files Modified:
-  - src/medster/tools/analysis/primitives.py
-
-  ---
-  Step 5: Update Code Generator 🤖
-
-  Goal: Enable vision analysis through generated code
-
-  Actions:
-  - Update PRIMITIVES_DOC to advertise vision primitives
-  - Add vision primitives to SAFE_GLOBALS
-  - Update system prompt for vision-aware code generation
-
-  Files Modified:
-  - src/medster/tools/analysis/code_generator.py
-
-  ---
-  Step 6: Add Vision Support to LLM 👁️
-
-  Goal: Enable Claude vision API calls
-
-  Actions:
-  - Modify call_llm() to accept images parameter
-  - Handle base64 image encoding in API call
-  - Support multi-image requests
-
-  Files Modified:
-  - src/medster/model.py
-
-  ---
-  Step 7: Update Agent Prompts 📝
-
-  Goal: Inform agent about vision capabilities
-
-  Actions:
-  - Update PLANNING_SYSTEM_PROMPT with vision analysis examples
-  - Update ACTION_SYSTEM_PROMPT with vision primitives info
-
-  Files Modified:
-  - src/medster/prompts.py
-
-  ---
-  Step 8: Update Documentation 📚
-
-  Goal: Document new multimodal capabilities
-
-  Actions:
-  - Add multimodal section to CLAUDE.md
-  - Document vision primitives
-  - Provide example queries
-
-  Files Modified:
-  - CLAUDE.md
-
-  ---
-  Step 9: Test End-to-End ✅
-
-  Goal: Validate multimodal workflow
-
-  Actions:
-  - Test query: "Analyze stroke patients with brain MRI findings"
-  - Verify image loading, conversion, and analysis
-  - Check token usage and response quality
+### Git Commits (pushed to sbayer2/Medster-local-llm)
+- `9d950de` - Fix: Escape curly braces in JSON examples for LangChain
+- `14f4f85` - Fix: Add explicit JSON output format for prompt-based tool calling
+- `b79a4d1` - Fix: Clarify when to use vision/DICOM vs text-based FHIR tools
+- `886b26c` - Fix: Update Next.js and React to latest stable versions
+- `f271a24` - Docs: Add comprehensive beta testing setup guide
