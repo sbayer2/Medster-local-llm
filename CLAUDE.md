@@ -523,3 +523,95 @@ Note: All curly braces MUST be doubled (`{{` and `}}`) to escape LangChain templ
 - `b79a4d1` - Fix: Clarify when to use vision/DICOM vs text-based FHIR tools
 - `886b26c` - Fix: Update Next.js and React to latest stable versions
 - `f271a24` - Docs: Add comprehensive beta testing setup guide
+
+## Session Notes (2025-12-16)
+
+### Compositional Prompts Framework
+
+**Architecture implemented:**
+- `BASE` prompts: Core clinical logic shared across all models
+- `MODEL_SPECIFIC`: Model-tuned instructions for each supported model
+- `VISION_ADDON`: Additional guidance when images/DICOM are in context
+
+**Getter functions compose prompts dynamically:**
+```python
+get_planning_prompt(model_name, has_images) -> BASE + MODEL_SPECIFIC + VISION_ADDON
+get_action_prompt(model_name, has_images) -> BASE + MODEL_SPECIFIC + VISION_ADDON
+get_validation_prompt(model_name) -> BASE + MODEL_SPECIFIC
+get_answer_prompt(model_name, has_images) -> BASE + MODEL_SPECIFIC + VISION_ADDON
+```
+
+### qwen3 Thinking Mode Fix
+
+**Problem:** qwen3-vl:8b puts JSON output in `thinking` field instead of `content` field, breaking LangChain's `with_structured_output()`.
+
+**Solution (model.py):**
+```python
+def _is_thinking_mode_model(model: str) -> bool:
+    thinking_models = ['qwen3-vl', 'qwen3']
+    return any(tm in model.lower() for tm in thinking_models)
+
+# In call_llm():
+if is_thinking_model:
+    llm = llm.bind(think=False)  # Forces JSON to content field
+```
+
+### skip_arg_optimization Flag
+
+**Problem:** `optimize_tool_args()` adds extra LLM call per tool execution, making vision models too slow.
+
+**Solution (model_capabilities.py + agent.py):**
+```python
+# model_capabilities.py
+@dataclass
+class ModelCapability:
+    skip_arg_optimization: bool = False  # New flag
+
+# Enabled for slow vision models:
+"qwen3-vl:8b": ModelCapability(skip_arg_optimization=True, ...)
+"ministral-3:8b": ModelCapability(skip_arg_optimization=True, ...)
+
+# agent.py - Skip the extra LLM call:
+if self.model_capability.skip_arg_optimization:
+    optimized_args = initial_args
+else:
+    optimized_args = self.optimize_tool_args(...)
+```
+
+### Vision Keyword Detection
+
+**Implementation (agent.py):**
+```python
+def _has_images_in_context(self, query: str) -> bool:
+    vision_keywords = [
+        'dicom', 'image', 'imaging', 'mri', 'ct scan', 'ct-scan',
+        'x-ray', 'xray', 'scan', 'radiology', 'visualize', 'ecg waveform',
+        'ecg tracing', 'view image', 'analyze image', 'imaging finding'
+    ]
+    return any(keyword in query.lower() for keyword in vision_keywords)
+```
+
+### Two-Task DICOM Pattern
+
+**PLANNING_VISION_ADDON enforces:**
+1. **Task 1 - Discovery**: "Explore DICOM database to discover actual metadata structure"
+2. **Task 2 - Adapted Analysis**: "Using discovered metadata from Task 1, filter and analyze..."
+
+This prevents assumptions about Coherent DICOM metadata (uses Modality='OT', not 'MR').
+
+### Model Testing Results
+
+| Model | Planning | Action | Vision | Speed |
+|-------|----------|--------|--------|-------|
+| gpt-oss:20b | ✅ | ✅ | N/A | Fast |
+| qwen3-vl:8b | ✅ | ✅ | ✅ | Slow (~3min/step) |
+| ministral-3:8b | ✅ | ✅ | ✅ | Medium (~30s/step) |
+
+### Key Files Modified
+- `src/medster/prompts.py` - Compositional architecture with getter functions
+- `src/medster/model.py` - Thinking mode fix, JSON parsing helpers
+- `src/medster/model_capabilities.py` - skip_arg_optimization flag
+- `src/medster/agent.py` - Vision detection, compositional prompt usage
+
+### Git Commit
+- `db72d77` - Feat: Add compositional prompts framework for multi-model support
