@@ -501,39 +501,19 @@ python -m medster.cli
 
 ### Model Selection
 
-At startup, you'll be prompted to choose your model:
+**Web UI:** Use the model dropdown in the chat interface to switch between available models. The UI auto-detects installed Ollama models.
 
-```
-======================================================================
-MODEL SELECTION
-======================================================================
+**CLI:** At startup, you'll be prompted to choose your model interactively.
 
-Choose your model:
+**Available Models:**
 
-1. gpt-oss:20b (TEXT-ONLY)
-   - Faster inference
-   - Clinical reasoning, labs, notes, reports
-   - Cannot process medical images
+| Model | Type | Best For | Speed |
+|-------|------|----------|-------|
+| gpt-oss:20b | Text-only | Labs, notes, clinical reasoning | Fast (~15-30s) |
+| qwen3-vl:8b | Vision | DICOM, ECG, X-rays, CT scans | Slower (~3min) |
+| ministral-3:8b | Vision | Balanced vision + reasoning | Medium (~30s) |
 
-2. qwen3-vl:8b (TEXT + IMAGES)
-   - Multimodal vision support
-   - Can analyze DICOM images, ECG tracings, X-rays
-   - Slower inference
-
-======================================================================
-
-Enter your choice (1 or 2):
-```
-
-**Choose Option 1 (gpt-oss:20b)** for:
-- Text-based analysis (labs, reports, clinical notes)
-- Faster inference (~15-30 seconds per query)
-- Already downloaded and optimized for M4 Mac
-
-**Choose Option 2 (qwen3-vl:8b)** for:
-- Medical image analysis (X-rays, CT scans, DICOM files, ECG tracings)
-- Multimodal vision capabilities
-- Requires pulling the model first: `ollama pull qwen3-vl:8b`
+**Recommendation:** Start with `gpt-oss:20b` for text analysis, switch to vision models when analyzing images.
 
 ### Example Queries
 
