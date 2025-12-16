@@ -19,12 +19,12 @@ from medster.model_capabilities import (
     get_max_retries,
 )
 from medster.prompts import (
-    ACTION_SYSTEM_PROMPT,
-    get_answer_system_prompt,
-    PLANNING_SYSTEM_PROMPT,
+    get_planning_prompt,
+    get_action_prompt,
+    get_validation_prompt,
+    get_meta_validation_prompt,
     get_tool_args_system_prompt,
-    VALIDATION_SYSTEM_PROMPT,
-    META_VALIDATION_SYSTEM_PROMPT,
+    get_answer_prompt,
 )
 from medster.schemas import Answer, IsDone, OptimizedToolArgs, Task, TaskList
 from medster.tools import TOOLS
@@ -60,16 +60,52 @@ class Agent:
         self.logger._log(f"  - Vision: {self.model_capability.vision}")
         self.logger._log(f"  - Tool strategy: {self.model_capability.tool_strategy.value}")
 
+        # Track current query for vision detection
+        self._current_query = ""
+        self._images_in_context = False
+
+    # ---------- vision detection ----------
+    def _has_images_in_context(self, query: str = None) -> bool:
+        """
+        Check if the current query/task involves vision/DICOM analysis.
+
+        Args:
+            query: Optional query to check. If not provided, uses stored query.
+
+        Returns:
+            True if vision analysis is indicated
+        """
+        check_query = query or self._current_query
+        if not check_query:
+            return self._images_in_context
+
+        vision_keywords = [
+            'dicom', 'image', 'imaging', 'mri', 'ct scan', 'ct-scan',
+            'x-ray', 'xray', 'scan', 'radiology', 'visualize', 'ecg waveform',
+            'ecg tracing', 'view image', 'analyze image', 'imaging finding'
+        ]
+        query_lower = check_query.lower()
+        return any(keyword in query_lower for keyword in vision_keywords)
+
     # ---------- task planning ----------
     @show_progress("Planning clinical analysis...", "Tasks planned")
     def plan_tasks(self, query: str) -> List[Task]:
+        # Store query for vision detection
+        self._current_query = query
+        self._images_in_context = self._has_images_in_context(query)
+
         tool_descriptions = "\n".join([f"- {t.name}: {t.description}" for t in TOOLS])
         prompt = f"""
         Given the clinical query: "{query}",
         Create a list of tasks to be completed.
         Example: {{"tasks": [{{"id": 1, "description": "some task", "done": false}}]}}
         """
-        system_prompt = PLANNING_SYSTEM_PROMPT.format(tools=tool_descriptions)
+        # Use compositional prompt with model-specific guidance
+        system_prompt = get_planning_prompt(
+            self.model_name,
+            has_images=self._images_in_context
+        ).format(tools=tool_descriptions)
+
         try:
             response = call_llm(prompt, model=self.model_name, system_prompt=system_prompt, output_schema=TaskList)
             tasks = response.tasks
@@ -119,13 +155,19 @@ class Agent:
         Please try a different approach - adjust parameters, use broader search terms, or try a different tool.
         """
 
+        # Get model-specific action prompt
+        action_prompt = get_action_prompt(
+            self.model_name,
+            has_images=self._images_in_context
+        )
+
         try:
             # Use fallback if we have retry context
             if retry_context:
                 ai_message = call_llm_with_fallback(
                     prompt=prompt,
                     model=self.model_name,
-                    system_prompt=ACTION_SYSTEM_PROMPT,
+                    system_prompt=action_prompt,
                     tools=TOOLS,
                     previous_result=str(retry_context.get('result', '')),
                     previous_tool=retry_context.get('tool_name'),
@@ -135,7 +177,7 @@ class Agent:
                 ai_message = call_llm(
                     prompt,
                     model=self.model_name,
-                    system_prompt=ACTION_SYSTEM_PROMPT,
+                    system_prompt=action_prompt,
                     tools=TOOLS
                 )
 
@@ -154,8 +196,11 @@ class Agent:
 
         Is the task done?
         """
+        # Use model-specific validation prompt
+        validation_prompt = get_validation_prompt(self.model_name)
+
         try:
-            resp = call_llm(prompt, model=self.model_name, system_prompt=VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=validation_prompt, output_schema=IsDone)
             return resp.done
         except:
             return False
@@ -186,8 +231,11 @@ Task Plan:
 
         Based on the task plan and data above, is the original clinical query sufficiently answered?
         """
+        # Use model-specific meta-validation prompt
+        meta_validation_prompt = get_meta_validation_prompt(self.model_name)
+
         try:
-            resp = call_llm(prompt, model=self.model_name, system_prompt=META_VALIDATION_SYSTEM_PROMPT, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=meta_validation_prompt, output_schema=IsDone)
             return resp.done
         except Exception as e:
             self.logger._log(f"Meta-validation failed: {e}")
@@ -214,8 +262,11 @@ Task Plan:
         Review the task and optimize the arguments to ensure all relevant parameters are used correctly.
         Pay special attention to filtering parameters that would help narrow down results to match the task.
         """
+        # Use model-specific tool args prompt
+        tool_args_prompt = get_tool_args_system_prompt(self.model_name)
+
         try:
-            response = call_llm(prompt, model=self.model_name, system_prompt=get_tool_args_system_prompt(), output_schema=OptimizedToolArgs)
+            response = call_llm(prompt, model=self.model_name, system_prompt=tool_args_prompt, output_schema=OptimizedToolArgs)
             if isinstance(response, dict):
                 return response if response else initial_args
             return response.arguments
@@ -365,7 +416,11 @@ Task Plan:
 
                     self.logger._log(f"Executing tool: {tool_name} with args: {initial_args}")
 
-                    optimized_args = self.optimize_tool_args(tool_name, initial_args, task.description)
+                    # Skip arg optimization for slower models (vision models)
+                    if self.model_capability.skip_arg_optimization:
+                        optimized_args = initial_args
+                    else:
+                        optimized_args = self.optimize_tool_args(tool_name, initial_args, task.description)
 
                     action_sig = f"{tool_name}:{optimized_args}"
 
@@ -430,7 +485,7 @@ Task Plan:
     def _generate_answer(self, query: str, task_outputs: list) -> str:
         """Generate the final clinical analysis based on collected data."""
         all_results = manage_context_size(task_outputs) if task_outputs else "No clinical data was collected."
-        answer_prompt = f"""
+        prompt = f"""
         Original clinical query: "{query}"
 
         Clinical data and results collected:
@@ -450,5 +505,11 @@ Task Plan:
 
         Be thorough and complete ALL sections. Do not truncate or stop mid-analysis.
         """
-        answer_obj = call_llm(answer_prompt, model=self.model_name, system_prompt=get_answer_system_prompt(), output_schema=Answer)
+        # Use model-specific answer prompt with vision context
+        answer_system_prompt = get_answer_prompt(
+            self.model_name,
+            has_images=self._images_in_context
+        )
+
+        answer_obj = call_llm(prompt, model=self.model_name, system_prompt=answer_system_prompt, output_schema=Answer)
         return answer_obj.answer

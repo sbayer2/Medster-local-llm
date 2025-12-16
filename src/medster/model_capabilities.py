@@ -48,6 +48,9 @@ class ModelCapability:
     prefers_structured_prompts: bool = True
     needs_tool_examples: bool = True
 
+    # Performance optimizations
+    skip_arg_optimization: bool = False  # Skip extra LLM call for arg optimization (for slower models)
+
 
 # Model Capability Registry
 MODEL_REGISTRY: Dict[str, ModelCapability] = {
@@ -55,13 +58,14 @@ MODEL_REGISTRY: Dict[str, ModelCapability] = {
         name="gpt-oss:20b",
         display_name="GPT-OSS 20B (Text-Only)",
         vision=False,
-        native_tools=True,
-        tool_strategy=ToolCallingStrategy.NATIVE,
+        native_tools=False,  # Ollama doesn't support native tools for this model
+        tool_strategy=ToolCallingStrategy.PROMPT_JSON,
         tool_call_reliability=0.85,
-        needs_explicit_json_format=False,
+        needs_explicit_json_format=True,
         context_window=16384,
         inference_speed="medium",
-        needs_tool_examples=False,
+        needs_tool_examples=True,  # Include examples for better JSON parsing
+        max_retries_on_failure=3,
     ),
 
     "qwen3-vl:8b": ModelCapability(
@@ -76,19 +80,22 @@ MODEL_REGISTRY: Dict[str, ModelCapability] = {
         inference_speed="slow",
         needs_tool_examples=True,
         max_retries_on_failure=3,
+        skip_arg_optimization=True,  # Skip extra LLM call - too slow
     ),
 
     "ministral-3:8b": ModelCapability(
         name="ministral-3:8b",
         display_name="Ministral 3 8B (Vision)",
         vision=True,
-        native_tools=True,  # Mistral models support function calling
-        tool_strategy=ToolCallingStrategy.NATIVE,
+        native_tools=False,  # Ollama doesn't support native tools consistently
+        tool_strategy=ToolCallingStrategy.PROMPT_JSON,
         tool_call_reliability=0.8,
-        needs_explicit_json_format=False,
+        needs_explicit_json_format=True,
         context_window=32768,
         inference_speed="medium",
-        needs_tool_examples=False,
+        needs_tool_examples=True,
+        max_retries_on_failure=3,
+        skip_arg_optimization=True,  # Skip extra LLM call for faster execution
     ),
 
     "llama3.1:8b": ModelCapability(

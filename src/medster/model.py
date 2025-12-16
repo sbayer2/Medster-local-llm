@@ -12,7 +12,6 @@ import time
 import json
 import re
 from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 from typing import Type, List, Optional, Union, Dict, Any
 from langchain_core.tools import BaseTool
@@ -90,6 +89,46 @@ def create_tool_calls_from_parsed(parsed: Dict[str, Any]) -> List[Dict[str, Any]
     }]
 
 
+def _is_thinking_mode_model(model: str) -> bool:
+    """Check if model uses thinking mode (puts JSON in thinking field, not content)."""
+    thinking_models = ['qwen3-vl', 'qwen3']
+    return any(tm in model.lower() for tm in thinking_models)
+
+
+def _parse_json_to_schema(json_content: str, schema: Type[BaseModel]) -> Any:
+    """Parse JSON string into a Pydantic schema."""
+    if not json_content:
+        return None
+
+    content = json_content.strip()
+
+    # Try to extract JSON from markdown code blocks or raw
+    json_patterns = [
+        r'```json\s*([\s\S]*?)\s*```',
+        r'```\s*([\s\S]*?)\s*```',
+        r'\{[\s\S]*\}',
+    ]
+
+    for pattern in json_patterns:
+        matches = re.findall(pattern, content)
+        for match in matches:
+            try:
+                json_str = match.strip() if isinstance(match, str) else match
+                if not json_str.startswith('{'):
+                    continue
+                parsed = json.loads(json_str)
+                return schema(**parsed)
+            except (json.JSONDecodeError, Exception):
+                continue
+
+    # Last resort: try parsing the whole content
+    try:
+        parsed = json.loads(content)
+        return schema(**parsed)
+    except:
+        return None
+
+
 def call_llm(
     prompt: str,
     model: str = "gpt-oss:20b",
@@ -112,10 +151,11 @@ def call_llm(
         images: Optional list of base64-encoded PNG images for vision analysis
 
     Returns:
-        AIMessage with content and/or tool_calls
+        AIMessage with content and/or tool_calls, or Pydantic model if output_schema
     """
     final_system_prompt = system_prompt if system_prompt else DEFAULT_SYSTEM_PROMPT
     capability = get_model_capability(model)
+    is_thinking_model = _is_thinking_mode_model(model)
 
     # Get Ollama base URL from environment
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -128,6 +168,11 @@ def call_llm(
         format="json" if (output_schema or (tools and not capability.native_tools)) else None
     )
 
+    # For thinking mode models (qwen3), disable thinking to get JSON in content field
+    # Otherwise qwen3 puts JSON in 'thinking' field which breaks LangChain parsing
+    if is_thinking_model:
+        llm = llm.bind(think=False)
+
     # Determine tool calling strategy
     use_native_tools = tools and capability.native_tools
     use_prompt_tools = tools and not capability.native_tools
@@ -135,11 +180,12 @@ def call_llm(
     # Configure the runnable
     runnable = llm
     if output_schema:
+        # Use LangChain's structured output for schema parsing
         runnable = llm.with_structured_output(output_schema)
     elif use_native_tools:
         # Native tool binding for supported models
         runnable = llm.bind_tools(tools)
-    # For prompt-based tools, we'll modify the prompt instead
+    # For prompt-based tools, we'll handle it after invoke
 
     # Modify prompt for prompt-based tool calling
     if use_prompt_tools:
@@ -168,16 +214,20 @@ def call_llm(
         response = _invoke_with_retry(runnable, messages, capability.max_retries_on_failure)
 
     else:
-        # Text-only message
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", final_system_prompt),
-            ("user", "{prompt}")
-        ])
-
-        chain = prompt_template | runnable
+        # Text-only message - pass directly to avoid ChatPromptTemplate escaping issues
+        # ChatPromptTemplate interprets {} as template variables, which breaks JSON examples in prompts
+        messages = [
+            {"role": "system", "content": final_system_prompt},
+            {"role": "user", "content": prompt}
+        ]
 
         # Invoke with retry logic
-        response = _invoke_with_retry(chain, {"prompt": prompt}, capability.max_retries_on_failure)
+        response = _invoke_with_retry(runnable, messages, capability.max_retries_on_failure)
+
+    # Post-process for qwen3-vl thinking models (extract from thinking field if content is empty)
+    # Note: With think=False binding, JSON should be in content, but keep this as fallback
+    if response and isinstance(response, AIMessage):
+        response = _extract_thinking_content(response)
 
     # Post-process response for prompt-based tool calling
     if use_prompt_tools and response:
@@ -195,6 +245,42 @@ def _invoke_with_retry(runnable, input_data, max_retries: int = 3) -> Any:
             if attempt == max_retries - 1:
                 raise
             time.sleep(0.5 * (2 ** attempt))  # Exponential backoff
+
+
+def _extract_thinking_content(response: AIMessage) -> AIMessage:
+    """
+    Extract content from qwen3-vl thinking responses.
+
+    Qwen3-VL models with "thinking" capability put their reasoning in a
+    separate 'thinking' field instead of 'content'. This function extracts
+    that thinking content when the main content is empty.
+    """
+    if not response or not hasattr(response, 'content'):
+        return response
+
+    # Check if content is empty/whitespace
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    if content.strip():
+        return response  # Content exists, no extraction needed
+
+    # Look for thinking content in additional_kwargs
+    thinking = None
+    if hasattr(response, 'additional_kwargs'):
+        thinking = response.additional_kwargs.get('thinking', '')
+
+    # Also check response_metadata (LangChain sometimes puts it there)
+    if not thinking and hasattr(response, 'response_metadata'):
+        thinking = response.response_metadata.get('thinking', '')
+
+    if thinking:
+        # Create new AIMessage with thinking as content
+        return AIMessage(
+            content=thinking,
+            tool_calls=getattr(response, 'tool_calls', []),
+            additional_kwargs={**getattr(response, 'additional_kwargs', {}), 'from_thinking': True}
+        )
+
+    return response
 
 
 def _process_prompt_based_tool_response(response: AIMessage) -> AIMessage:
