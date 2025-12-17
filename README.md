@@ -43,6 +43,27 @@ uv run medster-agent
 > **🧪 Beta Testers**: You need the Coherent Data Set (9GB) to test clinical analysis features.
 > See [Beta Testing Setup](#-beta-testing-setup-coherent-data-set-required) below for complete database installation instructions.
 
+## 🆕 Recent Changes
+
+**December 2025:**
+
+- **Compositional Prompts Framework** - Dynamic prompt composition with `BASE` + `MODEL_SPECIFIC` + `VISION_ADDON` layers for multi-model support
+- **qwen3 Thinking Mode Fix** - Fixed JSON output parsing for models that use thinking mode (`think=False` binding)
+- **Skip Arg Optimization** - New `skip_arg_optimization` flag for faster vision model execution
+- **Async Primitives & Caching** - Added `async_load_patient()`, `@lru_cache` decorators, batch FHIR operations
+- **Vision Keyword Detection** - Automatic detection of imaging queries to enable vision prompts
+- **Two-Task DICOM Pattern** - Mandatory discovery + adaptation pattern for DICOM analysis
+- **Frontend Updates** - Next.js 15.1.4, React 19.0.0
+- **LangChain Template Fix** - Escaped curly braces in JSON examples to prevent template errors
+
+**Model Testing Results:**
+
+| Model | Planning | Action | Vision | Notes |
+|-------|----------|--------|--------|-------|
+| gpt-oss:20b | ✅ | ✅ | N/A | Fast, recommended for text |
+| qwen3-vl:8b | ✅ | ✅ | ✅ | Slower (~3min/step) |
+| ministral-3:8b | ✅ | ✅ | ✅ | Medium (~30s/step) |
+
 ## 🧪 Beta Testing Setup (Coherent Data Set Required)
 
 **For beta testers**: To fully test Medster's clinical analysis capabilities, you need the Coherent Data Set with synthetic medical data.
@@ -480,39 +501,19 @@ python -m medster.cli
 
 ### Model Selection
 
-At startup, you'll be prompted to choose your model:
+**Web UI:** Use the model dropdown in the chat interface to switch between available models. The UI auto-detects installed Ollama models.
 
-```
-======================================================================
-MODEL SELECTION
-======================================================================
+**CLI:** At startup, you'll be prompted to choose your model interactively.
 
-Choose your model:
+**Available Models:**
 
-1. gpt-oss:20b (TEXT-ONLY)
-   - Faster inference
-   - Clinical reasoning, labs, notes, reports
-   - Cannot process medical images
+| Model | Type | Best For | Speed |
+|-------|------|----------|-------|
+| gpt-oss:20b | Text-only | Labs, notes, clinical reasoning | Fast (~15-30s) |
+| qwen3-vl:8b | Vision | DICOM, ECG, X-rays, CT scans | Slower (~3min) |
+| ministral-3:8b | Vision | Balanced vision + reasoning | Medium (~30s) |
 
-2. qwen3-vl:8b (TEXT + IMAGES)
-   - Multimodal vision support
-   - Can analyze DICOM images, ECG tracings, X-rays
-   - Slower inference
-
-======================================================================
-
-Enter your choice (1 or 2):
-```
-
-**Choose Option 1 (gpt-oss:20b)** for:
-- Text-based analysis (labs, reports, clinical notes)
-- Faster inference (~15-30 seconds per query)
-- Already downloaded and optimized for M4 Mac
-
-**Choose Option 2 (qwen3-vl:8b)** for:
-- Medical image analysis (X-rays, CT scans, DICOM files, ECG tracings)
-- Multimodal vision capabilities
-- Requires pulling the model first: `ollama pull qwen3-vl:8b`
+**Recommendation:** Start with `gpt-oss:20b` for text analysis, switch to vision models when analyzing images.
 
 ### Example Queries
 
@@ -624,103 +625,18 @@ OLLAMA_MODEL=llava:13b        # LLaVA multimodal
 
 ## 🔧 Troubleshooting
 
-### Ollama Not Running
+### Common Issues
 
-**Error:** `Connection refused to http://localhost:11434`
+| Issue | Solution |
+|-------|----------|
+| `Connection refused to localhost:11434` | Run `ollama serve` to start Ollama |
+| `model 'gpt-oss:20b' not found` | Run `ollama pull gpt-oss:20b` |
+| Agent crashes / out of memory | Use smaller model (qwen3-vl:8b) or close other apps |
+| WebSocket connection failed | Check backend: `curl http://localhost:8000/health` |
+| `FileNotFoundError: coherent_data/fhir` | Use absolute paths in `.env` |
+| Vision analysis not working | Ensure you selected qwen3-vl:8b or ministral-3:8b at startup |
 
-**Solution:**
-```bash
-# Start Ollama service
-ollama serve
-
-# Or on macOS with brew:
-brew services start ollama
-```
-
-### Model Not Found
-
-**Error:** `model 'gpt-oss:20b' not found`
-
-**Solution:**
-```bash
-# Pull the model first
-ollama pull gpt-oss:20b
-
-# Verify it's installed
-ollama list
-```
-
-### Out of Memory
-
-**Error:** Agent crashes or becomes unresponsive
-
-**Solution:**
-1. Use a smaller model (qwen3-vl:8b instead of gpt-oss:20b)
-2. Close other applications to free up RAM
-3. Increase swap space (Linux) or virtual memory (Windows)
-4. Use CPU inference instead of GPU (slower but uses less VRAM)
-
-### WebSocket Connection Failed
-
-**Error:** Frontend shows "Connection failed" or "Cannot connect to backend"
-
-**Solution:**
-```bash
-# 1. Check backend is running
-curl http://localhost:8000/health
-
-# 2. Restart backend
-pkill -f "uvicorn medster.api"
-uv run uvicorn medster.api:app --reload --host 0.0.0.0 --port 8000
-
-# 3. Check firewall isn't blocking port 8000
-```
-
-### Frontend Dependencies Error
-
-**Error:** `Module not found` or `Cannot find module 'next'`
-
-**Solution:**
-```bash
-cd frontend
-rm -rf node_modules package-lock.json
-npm install
-npm run dev
-```
-
-### FHIR Data Not Loading
-
-**Error:** `FileNotFoundError: coherent_data/fhir not found`
-
-**Solution:**
-1. Download Coherent Data Set from https://synthea.mitre.org/downloads
-2. Extract to project directory
-3. Update `.env`:
-   ```bash
-   COHERENT_DATA_PATH=/absolute/path/to/coherent_data/fhir
-   ```
-
-### Agent Stuck in Loop
-
-**Error:** Agent repeats same actions without progress
-
-**Solution:**
-- The agent has built-in loop detection (max 3 consecutive errors)
-- Force quit with Ctrl+C and restart
-- Check logs for repeated error messages
-- Try a different model (gpt-oss:20b is more reliable for text tasks)
-
-### Vision Analysis Not Working
-
-**Error:** `Model does not support vision` or image analysis fails
-
-**Solution:**
-1. Ensure you selected a vision-capable model (qwen3-vl:8b or ministral-3:8b)
-2. Pull the vision model:
-   ```bash
-   ollama pull qwen3-vl:8b
-   ```
-3. Restart agent and select vision model at startup
+**Note:** Most setup issues have been resolved. See [Beta Testing Setup](#-beta-testing-setup-coherent-data-set-required) for detailed database configuration.
 
 ## Safety & Disclaimer
 
