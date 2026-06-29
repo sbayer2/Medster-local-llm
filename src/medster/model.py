@@ -136,6 +136,7 @@ def call_llm(
     output_schema: Optional[Type[BaseModel]] = None,
     tools: Optional[List[BaseTool]] = None,
     images: Optional[List[str]] = None,
+    temperature: float = 0,
 ) -> AIMessage:
     """
     Call local LLM via Ollama with model-specific tool calling strategies.
@@ -163,7 +164,7 @@ def call_llm(
     # Initialize Ollama LLM
     llm = ChatOllama(
         model=model,
-        temperature=0,
+        temperature=temperature,
         base_url=ollama_base_url,
         format="json" if (output_schema or (tools and not capability.native_tools)) else None
     )

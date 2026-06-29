@@ -24,6 +24,7 @@ from medster.tools.medical.api import (
 from medster.config import (
     COHERENT_DICOM_PATH_ABS,
     COHERENT_CSV_PATH_ABS,
+    VISION_MODEL_PATH,
     get_selected_model
 )
 from medster.utils.image_utils import (
@@ -34,6 +35,170 @@ from medster.utils.image_utils import (
     get_image_metadata,
     ImageConversionError
 )
+
+
+import logging as _logging
+_vision_logger = _logging.getLogger(__name__)
+
+
+def log_progress(message: str) -> None:
+    """Emit a progress message from within generated analysis code."""
+    _vision_logger.info(message)
+    print(f"  [progress] {message}", flush=True)
+
+# ---------------------------------------------------------------------------
+# Vision inference — mlx_vlm + OptiQ (bypasses Ollama, runs Metal/Neural Engine)
+# ---------------------------------------------------------------------------
+
+_vision_model_cache: Dict[str, Any] = {}  # {path: (model, processor)}
+
+# Temperature per vision call type.
+# mlx_vlm exposes: temperature (default 0) and repetition_penalty.
+# top_p / top_k live inside mlx_lm sampler and are not surfaced through generate().
+#
+# 0.0  — structured output required (ECG field extraction, OCR transcription)
+# 0.1  — single-image diagnostic (slight diversity without hallucination risk)
+# 0.2  — comparative / batch (broader search across multiple images)
+_VISION_TEMPERATURE = {
+    "ecg":    0.0,
+    "ocr":    0.0,
+    "single": 0.1,
+    "batch":  0.2,
+    "multi":  0.2,
+}
+
+# Repetition penalty helps avoid looping on long clinical reports; keep light.
+_VISION_REPETITION_PENALTY = 1.1
+
+
+def _vision_generate(
+    images_b64: List[str],
+    prompt: str,
+    temperature: float = 0.1,
+    repetition_penalty: float = _VISION_REPETITION_PENALTY,
+    max_tokens: int = 1024,
+) -> str:
+    """
+    Run vision inference via mlx_vlm against the local OptiQ model.
+
+    Handles:
+    - Model caching (loaded once per session, ~1.8s cold start)
+    - mtp.* weight filtering (MTP module not yet in mlx_vlm model class)
+    - apply_chat_template for correct image token injection
+    - Single and multi-image calls (one generate() per image for reliability)
+
+    Sampling params (mlx_vlm exposes temperature + repetition_penalty only;
+    top_p/top_k are not surfaced through its generate() API):
+        temperature: 0=deterministic, 0.1=single image, 0.2=batch/multi
+        repetition_penalty: 1.1 default — light penalty to prevent report loops
+        max_tokens: token budget per image (default 1024)
+
+    Args:
+        images_b64: List of base64-encoded PNG strings
+        prompt: Clinical prompt (plain text, chat template applied internally)
+        temperature: Sampling temperature (see _VISION_TEMPERATURE)
+        repetition_penalty: Token repetition penalty (1.0 = disabled)
+        max_tokens: Max tokens to generate per image
+
+    Returns:
+        Combined analysis text, or error string on failure
+    """
+    import base64
+    import io
+    import tempfile
+    import os
+    import mlx.nn as _nn
+    from mlx_vlm import load as _vlm_load, generate as _vlm_generate
+    from mlx_vlm.utils import load_config as _vlm_load_config
+    from mlx_vlm.prompt_utils import apply_chat_template as _apply_chat_template
+    from PIL import Image as _PILImage
+
+    model_path = VISION_MODEL_PATH
+
+    # --- load model once per session ---
+    if model_path not in _vision_model_cache:
+        _vision_logger.info(f"Loading vision model from {model_path}")
+
+        # Patch load_weights to drop mtp.* keys not yet modelled in mlx_vlm
+        _orig_lw = _nn.Module.load_weights
+        def _lw_patched(self, file_or_weights, strict=True):
+            if isinstance(file_or_weights, list):
+                before = len(file_or_weights)
+                file_or_weights = [(k, v) for k, v in file_or_weights
+                                   if not k.startswith("mtp.")]
+                dropped = before - len(file_or_weights)
+                if dropped:
+                    _vision_logger.info(f"Dropped {dropped} mtp.* weights (MTP not in mlx_vlm)")
+            return _orig_lw(self, file_or_weights, strict=False)
+
+        _nn.Module.load_weights = _lw_patched
+        try:
+            model, processor = _vlm_load(model_path)
+        finally:
+            _nn.Module.load_weights = _orig_lw  # restore after load
+
+        _vision_model_cache[model_path] = (model, processor)
+        _vision_logger.info("Vision model loaded and cached")
+
+    model, processor = _vision_model_cache[model_path]
+    config = _vlm_load_config(model_path)
+
+    # Text-only path (OPTI_ALL_MODE document analysis — no images)
+    valid_b64 = [b for b in images_b64 if b]
+    if not valid_b64:
+        formatted = _apply_chat_template(processor, config, prompt, num_images=0)
+        output = _vlm_generate(
+            model, processor,
+            prompt=formatted,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            repetition_penalty=repetition_penalty,
+            verbose=False,
+        )
+        return output.text if hasattr(output, "text") else str(output)
+
+    results = []
+    tmp_files = []
+
+    try:
+        for i, b64 in enumerate(valid_b64):
+            # Write image to temp file — mlx_vlm generate() accepts a file path
+            img_bytes = base64.b64decode(b64)
+            img = _PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            img.save(tmp.name)
+            tmp.close()
+            tmp_files.append(tmp.name)
+
+            # Format prompt with image token via processor chat template
+            img_label = f"Image {i+1}" if len(valid_b64) > 1 else ""
+            full_prompt = f"{img_label}\n{prompt}".strip() if img_label else prompt
+            formatted = _apply_chat_template(
+                processor, config, full_prompt, num_images=1
+            )
+
+            output = _vlm_generate(
+                model, processor,
+                prompt=formatted,
+                image=tmp.name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+                verbose=False,
+            )
+            results.append(output.text if hasattr(output, "text") else str(output))
+
+    finally:
+        for f in tmp_files:
+            try:
+                os.unlink(f)
+            except Exception:
+                pass
+
+    return "\n\n".join(results)
+
+
+# ---------------------------------------------------------------------------
 
 
 def load_patient(patient_id: str) -> Dict[str, Any]:
@@ -559,17 +724,8 @@ def analyze_image_with_llm(image_base64: str, prompt: str) -> str:
             )
     """
     try:
-        from medster.model import call_llm
-
-        response = call_llm(
-            prompt=prompt,
-            images=[image_base64],
-            model=get_selected_model()  # Use selected vision model
-        )
-
-        # Extract text content from response
-        return response.content if hasattr(response, 'content') else str(response)
-
+        return _vision_generate([image_base64], prompt,
+                                temperature=_VISION_TEMPERATURE["single"])
     except Exception as e:
         return f"Vision analysis error: {str(e)}"
 
@@ -638,15 +794,9 @@ CONFIDENCE: [High, Medium, or Low]
 
 Be precise in your RHYTHM classification. Only state "Atrial Fibrillation" if you see irregularly irregular R-R intervals, absent P waves, AND fibrillatory baseline."""
 
-        # Get vision analysis
-        from medster.model import call_llm
-        response = call_llm(
-            prompt=prompt,
-            images=[ecg_image],
-            model=get_selected_model()  # Use selected vision model (qwen3-vl:8b or ministral-3:8b)
-        )
-
-        raw_text = response.content if hasattr(response, 'content') else str(response)
+        # Get vision analysis via local OptiQ model
+        raw_text = _vision_generate([ecg_image], prompt,
+                                    temperature=_VISION_TEMPERATURE["ecg"])
 
         # Parse structured response with better logic
         def extract_field(text: str, field_name: str) -> str:
@@ -731,23 +881,11 @@ def analyze_multiple_images_with_llm(images: List[str], prompt: str) -> str:
             )
     """
     try:
-        from medster.model import call_llm
-
-        # Filter out None values
         valid_images = [img for img in images if img]
-
         if not valid_images:
             return "No valid images to analyze"
-
-        response = call_llm(
-            prompt=prompt,
-            images=valid_images,
-            model=get_selected_model()  # Use selected vision model
-        )
-
-        # Extract text content from response
-        return response.content if hasattr(response, 'content') else str(response)
-
+        return _vision_generate(valid_images, prompt,
+                                temperature=_VISION_TEMPERATURE["multi"])
     except Exception as e:
         return f"Vision analysis error: {str(e)}"
 
@@ -790,13 +928,8 @@ If the image contains no readable text, return: "NO_TEXT_FOUND"
 
 Language: {language}"""
 
-        response = call_llm(
-            prompt=prompt,
-            images=[image_base64],
-            model=get_selected_model()
-        )
-
-        return response.content if hasattr(response, 'content') else str(response)
+        return _vision_generate([image_base64], prompt,
+                                temperature=_VISION_TEMPERATURE["ocr"])
 
     except Exception as e:
         return f"OCR error: {str(e)}"
@@ -844,7 +977,6 @@ def analyze_batch_images(
                 print(f"{r['image_path']}: {r['analysis'][:200]}")
     """
     try:
-        from medster.model import call_llm
         from pathlib import Path
 
         results = []
@@ -944,13 +1076,8 @@ For each image, provide:
 Be concise but thorough."""
 
                 try:
-                    response = call_llm(
-                        prompt=batch_prompt,
-                        images=batch_images,
-                        model=get_selected_model()
-                    )
-
-                    analysis_text = response.content if hasattr(response, 'content') else str(response)
+                    analysis_text = _vision_generate(batch_images, batch_prompt,
+                                                     temperature=_VISION_TEMPERATURE["batch"])
 
                     batch_results.append({
                         "batch_index": batch_num,

@@ -22,7 +22,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from medster.model import call_llm
-from medster.config import get_selected_model
+from medster.config import get_selected_model, OPTI_ALL_MODE
 
 
 # =============================================================================
@@ -166,6 +166,16 @@ Prioritized list of actions:
 3. Long-term (follow-up, prevention)"""
 
 
+# Temperature by analysis depth:
+#   basic/comprehensive → 0 (deterministic extraction)
+#   complicated → 0.4 (exploration needed for differential reasoning)
+_ANALYSIS_TEMPERATURE = {
+    "basic": 0,
+    "comprehensive": 0,
+    "complicated": 0.4,
+}
+
+
 # =============================================================================
 # Tool
 # =============================================================================
@@ -227,23 +237,34 @@ def analyze_document(
         import time
         start_time = time.time()
 
-        response = call_llm(
-            prompt=formatted_prompt,
-            model=get_selected_model(),
-            system_prompt=None  # The prompt itself contains all guidance
-        )
+        if OPTI_ALL_MODE:
+            # Route through OptiQ (mlx_vlm) — same model used for vision,
+            # letting text + any associated images share one inference context.
+            from medster.tools.analysis.primitives import _vision_generate, _VISION_TEMPERATURE
+            analysis_text = _vision_generate(
+                images_b64=[],  # text-only — no images for pure document analysis
+                prompt=formatted_prompt,
+                temperature=_ANALYSIS_TEMPERATURE[analysis_type],
+            )
+            source = "OptiQ (mlx_vlm) — OPTI_ALL_MODE"
+        else:
+            response = call_llm(
+                prompt=formatted_prompt,
+                model=get_selected_model(),
+                system_prompt=None,
+                temperature=_ANALYSIS_TEMPERATURE[analysis_type],
+            )
+            analysis_text = response.content if hasattr(response, 'content') else str(response)
+            source = "Local Qwen3.6-MLX Model (Ollama)"
 
         elapsed = time.time() - start_time
-
-        # Extract text content from response
-        analysis_text = response.content if hasattr(response, 'content') else str(response)
 
         return {
             "analysis_type": analysis_type,
             "status": "success",
             "analysis": analysis_text,
             "processing_time": round(elapsed, 2),
-            "source": "Local Qwen3.6-MLX Model",
+            "source": source,
             "note_length": len(note_text),
         }
 

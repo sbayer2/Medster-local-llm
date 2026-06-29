@@ -13,6 +13,7 @@ import time
 from langchain_core.messages import AIMessage
 
 from medster.model import call_llm, call_llm_with_fallback, is_empty_or_no_data_result
+from medster.config import OPTI_ALL_MODE
 from medster.model_capabilities import (
     get_model_capability,
     supports_native_tools,
@@ -510,6 +511,14 @@ Task Plan:
             self.model_name,
             has_images=self._images_in_context
         )
+
+        if OPTI_ALL_MODE:
+            # Route through OptiQ mlx_vlm — free text, no schema wrapper needed.
+            # System prompt is prepended to the user prompt since _vision_generate
+            # uses apply_chat_template which handles it as a single user turn.
+            from medster.tools.analysis.primitives import _vision_generate
+            full_prompt = f"{answer_system_prompt}\n\n{prompt}" if answer_system_prompt else prompt
+            return _vision_generate([], full_prompt, temperature=0.1, max_tokens=2048)
 
         answer_obj = call_llm(prompt, model=self.model_name, system_prompt=answer_system_prompt, output_schema=Answer)
         return answer_obj.answer

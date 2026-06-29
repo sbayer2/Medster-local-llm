@@ -22,9 +22,26 @@ MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
 MCP_API_KEY = os.getenv("MCP_API_KEY")
 MCP_DEBUG = os.getenv("MCP_DEBUG", "false").lower() == "true"
 
-# Ollama configuration (local LLM)
+# Ollama configuration (local LLM — text/reasoning)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.6:35b-mlx")
+
+# Vision model — OptiQ 4-bit via mlx_vlm (bypasses Ollama for image inference)
+_DEFAULT_VISION_MODEL_PATH = str(
+    Path.home() / ".cache/huggingface/hub"
+    / "models--mlx-community--Qwen3.6-35B-A3B-OptiQ-4bit"
+    / "snapshots/7e762ce6fb7bd071cabb3914a0ee6c30e96b8cb3"
+)
+VISION_MODEL_PATH = os.getenv("VISION_MODEL_PATH", _DEFAULT_VISION_MODEL_PATH)
+
+# Routing mode for clinical analysis (analyze_document + all vision primitives).
+# True (default): OptiQ handles both text notes AND images — 2.4x faster than
+#                 Ollama on document analysis, clinically equivalent output.
+# False         : Ollama text analysis + OptiQ vision — dual-model split.
+#                 Set OPTI_ALL_MODE=false in .env to revert to Ollama for text.
+# Agent loop (plan/act/validate) always stays on Ollama regardless — JSON
+# grammar enforcement via Ollama is required for reliable tool selection.
+OPTI_ALL_MODE: bool = os.getenv("OPTI_ALL_MODE", "true").lower() == "true"
 
 # Runtime model selection (set by CLI at startup)
 _SELECTED_MODEL = None
