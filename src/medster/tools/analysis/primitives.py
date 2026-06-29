@@ -77,6 +77,7 @@ def _vision_generate(
     temperature: float = 0.1,
     repetition_penalty: float = _VISION_REPETITION_PENALTY,
     max_tokens: int = 1024,
+    enable_thinking: bool = False,
 ) -> str:
     """
     Run vision inference via mlx_vlm against the local OptiQ model.
@@ -146,7 +147,9 @@ def _vision_generate(
     # Text-only path (OPTI_ALL_MODE document analysis — no images)
     valid_b64 = [b for b in images_b64 if b]
     if not valid_b64:
-        formatted = _apply_chat_template(processor, config, prompt, num_images=0)
+        formatted = _apply_chat_template(
+            processor, config, prompt, num_images=0, enable_thinking=enable_thinking
+        )
         output = _vlm_generate(
             model, processor,
             prompt=formatted,
@@ -174,7 +177,7 @@ def _vision_generate(
             img_label = f"Image {i+1}" if len(valid_b64) > 1 else ""
             full_prompt = f"{img_label}\n{prompt}".strip() if img_label else prompt
             formatted = _apply_chat_template(
-                processor, config, full_prompt, num_images=1
+                processor, config, full_prompt, num_images=1, enable_thinking=enable_thinking
             )
 
             output = _vlm_generate(

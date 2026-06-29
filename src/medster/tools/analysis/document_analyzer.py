@@ -175,6 +175,15 @@ _ANALYSIS_TEMPERATURE = {
     "complicated": 0.4,
 }
 
+# Thinking (chain-of-thought) by analysis depth:
+#   basic/comprehensive → off (deterministic extraction, clean output)
+#   complicated → on (differential diagnosis + QA self-check benefit from reasoning)
+_ANALYSIS_THINKING = {
+    "basic": False,
+    "comprehensive": False,
+    "complicated": True,
+}
+
 
 # =============================================================================
 # Tool
@@ -245,6 +254,7 @@ def analyze_document(
                 images_b64=[],  # text-only — no images for pure document analysis
                 prompt=formatted_prompt,
                 temperature=_ANALYSIS_TEMPERATURE[analysis_type],
+                enable_thinking=_ANALYSIS_THINKING[analysis_type],
             )
             source = "OptiQ (mlx_vlm) — OPTI_ALL_MODE"
         else:

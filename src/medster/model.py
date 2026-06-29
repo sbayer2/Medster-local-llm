@@ -137,9 +137,14 @@ def call_llm(
     tools: Optional[List[BaseTool]] = None,
     images: Optional[List[str]] = None,
     temperature: float = 0,
+    enable_thinking: bool = False,
 ) -> AIMessage:
     """
     Call local LLM via Ollama with model-specific tool calling strategies.
+
+    enable_thinking: when False (default) thinking-mode models are bound with
+    think=False so structured JSON lands in the content field. Accepted here so
+    call_llm and call_opti_llm share a signature for the agent-loop router.
 
     Args:
         prompt: The user prompt to send
@@ -171,7 +176,7 @@ def call_llm(
 
     # For thinking mode models (qwen3), disable thinking to get JSON in content field
     # Otherwise qwen3 puts JSON in 'thinking' field which breaks LangChain parsing
-    if is_thinking_model:
+    if is_thinking_model and not enable_thinking:
         llm = llm.bind(think=False)
 
     # Determine tool calling strategy
@@ -361,6 +366,189 @@ def call_llm_with_fallback(
         system_prompt=system_prompt,
         tools=tools,
         images=images,
+    )
+
+
+# ---------------------------------------------------------------------------
+# OptiQ (mlx_vlm) routing — single local model for agent loop + vision
+# ---------------------------------------------------------------------------
+
+_SCHEMA_EXAMPLES = {
+    "IsDone":            '{"done": false}',
+    "TaskList":          '{"tasks": [{"id": 1, "description": "task description", "done": false}]}',
+    "OptimizedToolArgs": '{"arguments": {"param": "value"}}',
+    "Answer":            '{"answer": "clinical analysis text"}',
+}
+
+
+def _schema_json_hint(schema: Type[BaseModel]) -> str:
+    """Return a one-line JSON example for the schema, used to guide OptiQ output."""
+    name = schema.__name__
+    if name in _SCHEMA_EXAMPLES:
+        return _SCHEMA_EXAMPLES[name]
+    try:
+        props = schema.model_json_schema().get('properties', {})
+        example = {}
+        for k, v in props.items():
+            t = v.get('type', 'string')
+            if t == 'boolean':   example[k] = False
+            elif t == 'integer': example[k] = 0
+            elif t == 'array':   example[k] = []
+            elif t == 'object':  example[k] = {}
+            else:                example[k] = f"<{k}>"
+        return json.dumps(example)
+    except Exception:
+        return '{}'
+
+
+def _tool_call_instruction(tools: List[BaseTool]) -> str:
+    """Build a compact tool-call instruction block for injection into the OptiQ prompt."""
+    tool_list = "\n".join(
+        f'  "{t.name}": {t.description[:180].strip()}'
+        for t in tools
+    )
+    return (
+        'Select ONE tool and return ONLY this JSON object (no markdown, no explanation):\n'
+        '{\n'
+        '    "reasoning": "<one sentence>",\n'
+        '    "tool_name": "<exact name>",\n'
+        '    "tool_args": {<arguments>}\n'
+        '}\n\n'
+        f'Available tools:\n{tool_list}'
+    )
+
+
+def call_opti_llm(
+    prompt: str,
+    model: str = "qwen3.6:35b-mlx",
+    system_prompt: Optional[str] = None,
+    output_schema: Optional[Type[BaseModel]] = None,
+    tools: Optional[List[BaseTool]] = None,
+    images: Optional[List[str]] = None,
+    temperature: float = 0.0,
+    enable_thinking: bool = False,
+) -> Any:
+    """
+    Drop-in replacement for call_llm() that routes through OptiQ via mlx_vlm.
+
+    Single local model for BOTH the agent loop and vision — no Ollama (no KV
+    spike), no oMLX (no MTP vision-load failure). Uses the already-loaded OptiQ
+    model in memory.
+
+    Thinking control:
+    - enable_thinking=False (default) for deterministic structured calls
+      (planning, validation, tool selection) — clean JSON, lower latency.
+    - enable_thinking=True for reasoning-heavy calls (synthesis, complicated
+      document analysis) where chain-of-thought improves clinical quality.
+
+    JSON reliability strategy (no grammar constraint available off-Ollama):
+    - low temperature for structured calls (near-deterministic at 35B)
+    - explicit JSON example injected into every structured prompt
+    - up to 3 attempts with tightened instruction on parse failure
+    - _parse_json_to_schema() strips any <think> tags automatically
+    """
+    from medster.tools.analysis.primitives import _vision_generate
+
+    # Merge system prompt into user prompt — mlx_vlm apply_chat_template uses a
+    # single user turn; the model reads system context from the prefix.
+    full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+
+    if output_schema:
+        hint = _schema_json_hint(output_schema)
+        structured_prompt = (
+            f"{full_prompt}\n\n"
+            f"Respond with ONLY valid JSON, no markdown, no explanation:\n{hint}"
+        )
+        last_raw = ""
+        for attempt in range(3):
+            p = structured_prompt if attempt == 0 else (
+                f"{structured_prompt}\n\n"
+                f"IMPORTANT: Your previous response could not be parsed as JSON. "
+                f"Return ONLY the JSON object, nothing else."
+            )
+            last_raw = _vision_generate(
+                images_b64=images or [],
+                prompt=p,
+                temperature=temperature,
+                max_tokens=1024,
+                enable_thinking=enable_thinking,
+            )
+            result = _parse_json_to_schema(last_raw, output_schema)
+            if result is not None:
+                return result
+        raise ValueError(
+            f"call_opti_llm: {output_schema.__name__} parse failed after 3 attempts. "
+            f"Last output: {last_raw[:300]}"
+        )
+
+    elif tools:
+        instruction = _tool_call_instruction(tools)
+        tool_prompt = f"{full_prompt}\n\n{instruction}"
+        last_raw = ""
+        for attempt in range(3):
+            p = tool_prompt if attempt == 0 else (
+                f"{tool_prompt}\n\n"
+                f"IMPORTANT: Return ONLY the JSON object with reasoning, tool_name, tool_args."
+            )
+            last_raw = _vision_generate(
+                images_b64=images or [],
+                prompt=p,
+                temperature=temperature,
+                max_tokens=512,
+                enable_thinking=enable_thinking,
+            )
+            parsed = parse_tool_call_from_json(last_raw)
+            if parsed and parsed.get('tool_name'):
+                return AIMessage(
+                    content=parsed.get('reasoning', ''),
+                    tool_calls=create_tool_calls_from_parsed(parsed),
+                    additional_kwargs={'via_opti': True},
+                )
+        # All retries failed — return empty tool call so the agent can handle it
+        return AIMessage(content=last_raw, tool_calls=[])
+
+    else:
+        raw = _vision_generate(
+            images_b64=images or [],
+            prompt=full_prompt,
+            temperature=temperature,
+            max_tokens=2048,
+            enable_thinking=enable_thinking,
+        )
+        return AIMessage(content=raw)
+
+
+def call_opti_llm_with_fallback(
+    prompt: str,
+    model: str,
+    system_prompt: Optional[str] = None,
+    tools: Optional[List[BaseTool]] = None,
+    previous_result: Optional[str] = None,
+    previous_tool: Optional[str] = None,
+    previous_args: Optional[Dict] = None,
+    images: Optional[List[str]] = None,
+    enable_thinking: bool = False,
+) -> AIMessage:
+    """Fallback variant of call_opti_llm for retry-after-no-data scenarios."""
+    from medster.model_capabilities import get_no_data_fallback_prompt
+
+    if previous_result and previous_tool:
+        fallback_prompt = get_no_data_fallback_prompt(
+            model_name=model,
+            tools=tools or [],
+            previous_tool=previous_tool,
+            previous_args=previous_args or {},
+            previous_result=previous_result,
+        )
+        prompt = f"{prompt}\n\n{fallback_prompt}"
+
+    return call_opti_llm(
+        prompt=prompt,
+        model=model,
+        system_prompt=system_prompt,
+        tools=tools,
+        images=images,
+        enable_thinking=enable_thinking,
     )
 
 

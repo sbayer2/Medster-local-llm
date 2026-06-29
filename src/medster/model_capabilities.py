@@ -70,7 +70,10 @@ MODEL_REGISTRY: Dict[str, ModelCapability] = {
         inference_speed="medium",  # 35B MOE with active ~3.5B is fast on Apple Silicon
         needs_tool_examples=True,  # Include examples for best JSON parsing
         max_retries_on_failure=3,
-        skip_arg_optimization=False,  # Fast enough to afford arg optimization
+        skip_arg_optimization=True,  # Skip per-tool optimize round-trip — Ollama loop does
+                                     # 3 LLM calls/tool (select+optimize+validate); dropping
+                                     # optimize cuts ~1/3 of agent-loop latency. Base args from
+                                     # tool selection + tool defaults are sufficient.
         prefers_structured_prompts=True,
     ),
 
