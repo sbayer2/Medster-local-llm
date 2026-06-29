@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Medster is an autonomous clinical case analysis agent built on the Dexter architecture. It performs deep clinical analysis through autonomous task planning, tool selection, and self-validation using SYNTHEA/FHIR data and optional MCP server integration for complex document analysis.
+Medster is an autonomous clinical case analysis agent built on the Dexter architecture. It performs deep clinical analysis through autonomous task planning, tool selection, and self-validation using SYNTHEA/FHIR data. All LLM inference runs locally via Ollama using the Qwen3.6-35B-A3B-MLX model on Apple Silicon — no remote API calls needed.
 
 ## Core Architecture
 
@@ -225,7 +225,8 @@ analyze_ecg_for_rhythm(patient_id: str, clinical_context: str = "") -> Dict
 2. **Agent analyzes images** (using `call_llm` with `images` parameter):
    - Agent extracts base64 images from code generation result
    - Calls `call_llm(prompt, images=[img1, img2, ...])` for vision analysis
-   - Claude vision API analyzes imaging findings (masses, hemorrhage, fractures, etc.)
+   - Local Qwen3.6-MLX model analyzes imaging findings (masses, hemorrhage, fractures, etc.)
+   - All inference runs on Apple Silicon via Ollama — no network calls
 
 ### Image Utilities (`utils/image_utils.py`)
 
@@ -294,8 +295,28 @@ COHERENT_CSV_PATH=./coherent_data/csv
 
 ### Analysis Tools (tools/analysis/)
 
+**Local Document Analyzer** (`document_analyzer.py`):
+- `analyze_document` - Specialist-level clinical document analysis using local Qwen3.6-MLX model
+- Three analysis levels: basic (extraction), comprehensive (reasoning), complicated (differential diagnosis + QA)
+- Replaces deprecated MCP server — runs entirely on-device
+
+**Code Generator** (`code_generator.py`):
+- `generate_and_run_analysis` - Dynamic Python code execution using FHIR and vision primitives
+- Sandboxed environment with pre-imported primitives
+- Required: Code must define `analyze()` function returning dict
+
+**Vision Primitives** (`primitives.py`):
+- `scan_dicom_directory()` - List all DICOM files
+- `load_dicom_image_from_path()` - Load DICOM as base64 PNG
+- `ocr_extract_text()` - Extract text from scanned documents via vision OCR
+- `analyze_batch_images()` - Analyze multiple images in configurable batches
+- `analyze_image_with_llm()` - Single image vision analysis
+- `analyze_ecg_for_rhythm()` - Structured ECG rhythm analysis
+- `analyze_multiple_images_with_llm()` - Multi-image comparative analysis
+
 **MCP Client** (`mcp_client.py`):
-- `analyze_medical_document` - Delegates complex analysis to MCP server
+- DEPRECATED (June 2026) — replaced by local `analyze_document()` tool
+- Kept for reference but NOT registered in active TOOLS list
 
 **Code Generator** (`code_generator.py`):
 - `generate_and_run_analysis` - Dynamic Python code execution for custom analysis
@@ -341,11 +362,56 @@ black src/ --line-length 100
 # Linting
 ruff check src/
 
-# Run with Anthropic API key
-ANTHROPIC_API_KEY=xxx uv run medster-agent  # Uses Claude Sonnet 4.5
+# Start Ollama and pull model (first time)
+ollama serve
+ollama pull qwen3.6:35b-mlx
 ```
 
 **Note:** No test suite currently implemented. The `tests/` directory referenced in `pyproject.toml` does not exist.
+
+## Model Configuration
+
+### Primary Model (June 2026+)
+
+**Qwen3.6-35B-A3B-MLX** (`qwen3.6:35b-mlx` via Ollama)
+- 21GB native MLX format (not GGUF)
+- 128K context window, ~3.5B active params (MoE)
+- Vision + text multimodal
+- Runs on Apple Silicon via Ollama (Metal + Neural Engine)
+- Tool call reliability: 0.92
+- No Anthropic API key needed — fully local
+
+### Deprecated Models (backwards compat only)
+
+| Model | Status | Notes |
+|-------|--------|-------|
+| gpt-oss:20b | Deprecated | Text-only, was primary model Dec 2025 |
+| qwen3-vl:8b | Deprecated | Vision, slow (30-60s/call) |
+| ministral-3:8b | Deprecated | Vision, medium speed |
+| llama3.1:8b | Deprecated | Native tool calling, small |
+
+Check `model_capabilities.py` for capability registry. Use `is_deprecated_model()` to check.
+
+### Model Selection
+
+The CLI presents model selection at startup. Default is `qwen3.6:35b-mlx`.
+Set `OLLAMA_MODEL` in `.env` to override.
+
+## Session Notes (June 29, 2026)
+
+### Qwen3.6-MLX Migration
+
+**Why:** User upgraded to MacBook Pro with 64GB VRAM. New hardware supports running Qwen3.6-35B-A3B-MLX locally via Ollama, replacing deprecated Anthropic API calls and old local models.
+
+**Changes:**
+- Primary model: `qwen3.6:35b-mlx` (native MLX, 21GB)
+- Deprecated MCP server → replaced with local `analyze_document()` tool
+- New vision primitives: `ocr_extract_text()`, `analyze_batch_images()`
+- Removed `requests` dependency
+- All prompt sections updated with qwen3.6:35b-mlx entries
+- CLI updated with new model selection
+
+**Key insight:** Ollama already uses MLX natively on Apple Silicon. No need for direct mlx-lm Python bindings — the oMLX KV cache compression and Metal performance primitives are handled by Ollama's runtime.
 
 ## Key Implementation Patterns
 
@@ -426,16 +492,11 @@ All tool outputs are accumulated in `task_outputs` list and passed to subsequent
 Required in `.env` file:
 
 ```bash
-# Required for Claude Sonnet 4.5
-ANTHROPIC_API_KEY=sk-ant-...
-
 # Required for Coherent Data Set access
 COHERENT_DATA_PATH=./coherent_data/fhir
 
-# Optional: MCP server for complex analysis
-MCP_SERVER_URL=http://localhost:8000
-MCP_API_KEY=...
-MCP_DEBUG=true  # Enable debug logging
+# Ollama model (set via .env, default: qwen3.6:35b-mlx)
+# No API key needed — all inference is local via Ollama
 ```
 
 ## Code Modification Guidelines
@@ -456,10 +517,12 @@ MCP_DEBUG=true  # Enable debug logging
 
 ### Changing Models
 
-Update model names in `model.py`:
-- Claude models: Must use official Anthropic model IDs
-- Model mapping supports: `claude-sonnet-4.5`, `claude-opus-4`, `claude-haiku-4`
-- Default model: `claude-sonnet-4.5` (recommended for clinical analysis)
+Update model names in `model.py` and `model_capabilities.py`:
+- Ollama models: Use `ollama pull <model>` first, then update `OLLAMA_MODEL` in `.env`
+- Model capability registry: `model_capabilities.py` — add entries to `MODEL_REGISTRY`
+- Use `get_model_capability()`, `is_deprecated_model()`, `get_primary_model()` helpers
+- Default model: `qwen3.6:35b-mlx` (Qwen3.6-35B-A3B-MLX via Ollama)
+- All models use prompt-based JSON tool calling via Ollama API (no native tool binding)
 
 ### FHIR Data Access
 
