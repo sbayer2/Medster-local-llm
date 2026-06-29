@@ -486,6 +486,34 @@ def get_dicom_metadata(patient_id: str, image_index: int = 0) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def load_dicom_image_from_path(dicom_path: str) -> Optional[str]:
+    """
+    Load a DICOM image from its file path as optimized base64 PNG.
+
+    Use this after scan_dicom_directory() to load images by path.
+    This is the RECOMMENDED way to load DICOM images when you have file paths.
+
+    Args:
+        dicom_path: Full path to DICOM file (as string)
+
+    Returns:
+        Base64-encoded PNG string, or None if loading fails
+
+    Example:
+        dicom_files = scan_dicom_directory()
+        if dicom_files:
+            image_base64 = load_dicom_image_from_path(dicom_files[0])
+            if image_base64:
+                analysis = analyze_image_with_llm(image_base64, "Describe this image")
+    """
+    try:
+        base64_png = dicom_to_base64_png(Path(dicom_path), target_size=(800, 800), quality=85)
+        return base64_png
+    except Exception as e:
+        print(f"Error loading DICOM image from path: {e}")
+        return None
+
+
 def get_dicom_metadata_from_path(dicom_path: str) -> Dict[str, Any]:
     """
     Get metadata for a DICOM file from its path.
@@ -503,7 +531,6 @@ def get_dicom_metadata_from_path(dicom_path: str) -> Dict[str, Any]:
             print(f"Modality: {metadata.get('modality')}")
     """
     try:
-        from pathlib import Path
         return get_image_metadata(Path(dicom_path))
     except Exception as e:
         return {"error": str(e)}
@@ -725,9 +752,258 @@ def analyze_multiple_images_with_llm(images: List[str], prompt: str) -> str:
         return f"Vision analysis error: {str(e)}"
 
 
+def ocr_extract_text(image_base64: str, language: str = "eng") -> str:
+    """
+    Extract text from a scanned document or image using the local vision model.
+
+    This primitive performs OCR (Optical Character Recognition) by having the vision
+    model read and transcribe text from images. Useful for scanned medical documents,
+    lab reports, handwritten notes, or any image containing text.
+
+    Args:
+        image_base64: Base64-encoded PNG image string
+        language: Language hint for the model (default: "eng" for English)
+
+    Returns:
+        Extracted text from the image
+
+    Example:
+        # Extract text from a scanned lab report
+        text = ocr_extract_text(scanned_report_image)
+        if text and "error" not in text.lower():
+            # Now use analyze_document on the extracted text
+            result = analyze_document(text, analysis_type="comprehensive")
+    """
+    try:
+        from medster.model import call_llm
+
+        prompt = f"""Extract ALL text from this image. Transcribe it exactly as it appears.
+
+If this is a medical document (lab report, clinical note, prescription, etc.), preserve:
+- All numerical values and units
+- Patient identifiers (if visible)
+- Dates and timestamps
+- Medical terminology exactly as written
+- Table structures (use line breaks and spacing)
+
+If the image contains no readable text, return: "NO_TEXT_FOUND"
+
+Language: {language}"""
+
+        response = call_llm(
+            prompt=prompt,
+            images=[image_base64],
+            model=get_selected_model()
+        )
+
+        return response.content if hasattr(response, 'content') else str(response)
+
+    except Exception as e:
+        return f"OCR error: {str(e)}"
+
+
+def analyze_batch_images(
+    image_paths: List[str],
+    prompt: str,
+    batch_size: int = 3,
+    metadata_fn=None
+) -> Dict[str, Any]:
+    """
+    Analyze multiple images in batches using the local vision model.
+
+    This primitive loads and analyzes images in configurable batches, with progress
+    logging. It handles the full pipeline: loading DICOM files, converting to PNG,
+    and running vision analysis on each batch.
+
+    Args:
+        image_paths: List of file paths to images (DICOM, PNG, JPG, etc.)
+        prompt: Clinical question or analysis request
+        batch_size: Number of images to analyze per LLM call (default: 3)
+                   Higher = more context per call but more tokens
+        metadata_fn: Optional function(path) -> Dict for extracting metadata
+                     (e.g., get_dicom_metadata_from_path)
+
+    Returns:
+        Dictionary with:
+        - status: "success" or "error"
+        - total_images: Number of images processed
+        - successful: Number of images successfully analyzed
+        - failed: Number of images that failed
+        - results: List of {image_path, analysis, error} per image
+        - batch_results: List of {batch_index, images_count, analysis} for batched calls
+
+    Example:
+        dicom_files = scan_dicom_directory()
+        result = analyze_batch_images(
+            dicom_files[:20],
+            "Identify any masses, hemorrhage, or abnormal findings",
+            batch_size=3
+        )
+        for r in result["results"]:
+            if r.get("analysis") and "error" not in r["analysis"].lower():
+                print(f"{r['image_path']}: {r['analysis'][:200]}")
+    """
+    try:
+        from medster.model import call_llm
+        from pathlib import Path
+
+        results = []
+        batch_results = []
+        successful = 0
+        failed = 0
+
+        # Filter to existing files
+        valid_paths = [p for p in image_paths if Path(p).exists()]
+        total = len(valid_paths)
+
+        if not valid_paths:
+            return {
+                "status": "error",
+                "total_images": 0,
+                "successful": 0,
+                "failed": 0,
+                "results": [],
+                "batch_results": [],
+                "error": "No valid image files found"
+            }
+
+        log_progress(f"Analyzing {total} images in batches of {batch_size}...")
+
+        # Process in batches
+        for batch_start in range(0, total, batch_size):
+            batch_paths = valid_paths[batch_start:batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            total_batches = (total + batch_size - 1) // batch_size
+
+            log_progress(f"Batch {batch_num}/{total_batches}: {len(batch_paths)} images")
+
+            # Load and convert images in this batch
+            batch_images = []
+            batch_meta = []
+
+            for img_path in batch_paths:
+                path_str = str(img_path)
+
+                # Get metadata if function provided
+                meta = {}
+                if metadata_fn:
+                    try:
+                        meta = metadata_fn(path_str)
+                    except Exception:
+                        meta = {}
+
+                # Convert to base64 PNG
+                try:
+                    img_base64 = dicom_to_base64_png(
+                        Path(path_str),
+                        target_size=(800, 800),
+                        quality=85
+                    )
+                    if img_base64:
+                        batch_images.append(img_base64)
+                        batch_meta.append({
+                            "path": path_str,
+                            "metadata": meta
+                        })
+                except Exception:
+                    failed += 1
+                    results.append({
+                        "image_path": path_str,
+                        "error": "Failed to load image"
+                    })
+                    continue
+
+            # Analyze batch if we have images
+            if batch_images:
+                # Build batch context
+                context_parts = []
+                for i, meta_info in enumerate(batch_meta):
+                    ctx = f"Image {i + 1}: {meta_info['path']}"
+                    if meta_info.get("metadata"):
+                        mod = meta_info["metadata"].get("modality", "")
+                        body = meta_info["metadata"].get("body_part", "")
+                        if mod:
+                            ctx += f" (Modality: {mod})"
+                        if body:
+                            ctx += f" (Body Part: {body})"
+                    context_parts.append(ctx)
+
+                batch_prompt = f"""Analyze the following medical images for the clinical question below.
+
+Clinical Question: {prompt}
+
+Images:
+{chr(10).join(context_parts)}
+
+For each image, provide:
+1. Image identifier
+2. Key findings
+3. Answer to the clinical question
+4. Any critical findings
+
+Be concise but thorough."""
+
+                try:
+                    response = call_llm(
+                        prompt=batch_prompt,
+                        images=batch_images,
+                        model=get_selected_model()
+                    )
+
+                    analysis_text = response.content if hasattr(response, 'content') else str(response)
+
+                    batch_results.append({
+                        "batch_index": batch_num,
+                        "images_count": len(batch_images),
+                        "analysis": analysis_text
+                    })
+
+                    # Distribute analysis to individual results
+                    # Since the model returns one analysis for the batch, we attribute it to all
+                    for meta_info in batch_meta:
+                        successful += 1
+                        results.append({
+                            "image_path": meta_info["path"],
+                            "analysis": analysis_text,
+                            "metadata": meta_info.get("metadata", {})
+                        })
+
+                except Exception as e:
+                    failed += len(batch_images)
+                    for meta_info in batch_meta:
+                        results.append({
+                            "image_path": meta_info["path"],
+                            "error": f"Batch analysis error: {str(e)}"
+                        })
+
+        return {
+            "status": "success",
+            "total_images": total,
+            "successful": successful,
+            "failed": failed,
+            "results": results,
+            "batch_results": batch_results
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "total_images": len(image_paths),
+            "successful": 0,
+            "failed": len(image_paths),
+            "results": [],
+            "batch_results": [],
+            "error": str(e)
+        }
+
+
 # API specification for LLM code generation
 PRIMITIVES_SPEC = """
 Available functions for custom analysis:
+
+**CRITICAL: DO NOT use 'import' statements. All functions below are pre-imported and available.**
+**DO NOT write: import random, from typing import, etc. - these will cause errors.**
+**Just use the functions directly: random.choice(), List, Dict, etc.**
 
 # Patient Data
 get_patients(limit: int = None) -> List[str]
@@ -827,34 +1103,52 @@ group_by_field(items: List, field: str) -> Dict[str, List]
 aggregate_numeric(items: List, field: str) -> Dict
     # Returns: {{"count", "min", "max", "mean", "sum"}}
 
-# Vision and Imaging (Multimodal Analysis)
+# ========== VISION/IMAGING (Multimodal Analysis) ==========
+
+# ----- PATH-BASED FUNCTIONS (Use with scan_dicom_directory) -----
+# These work with file paths returned by scan_dicom_directory()
+
 scan_dicom_directory() -> List[str]
     # Scan DICOM directory and return ALL DICOM file paths
     # Returns: List of file path strings
     # Use this for database-wide DICOM analysis (fast - no patient iteration)
     # Example: dicom_files = scan_dicom_directory()  # Returns all 298 files
 
+load_dicom_image_from_path(dicom_path: str) -> Optional[str]
+    # **RECOMMENDED** Load DICOM image from file path as base64 PNG
+    # Use with scan_dicom_directory() for direct file loading
+    # Returns: base64 PNG string ready for vision analysis, or None
+    # Example:
+    #   dicom_files = scan_dicom_directory()
+    #   image_base64 = load_dicom_image_from_path(dicom_files[0])
+    #   if image_base64:
+    #       analysis = analyze_image_with_llm(image_base64, "Describe this image")
+
 get_dicom_metadata_from_path(dicom_path: str) -> Dict
     # Get metadata for DICOM file from file path
-    # Returns: {"modality": str, "study_description": str, "body_part": str, "dimensions": str, ...}
+    # Returns: {{"modality": str, "study_description": str, "body_part": str, "dimensions": str, ...}}
     # Use with scan_dicom_directory() for fast metadata extraction
     # Example: metadata = get_dicom_metadata_from_path(dicom_files[0])
 
+# ----- PATIENT-ID BASED FUNCTIONS -----
+# These require a patient_id from FHIR bundles (may not find DICOM files due to naming mismatch)
+
 find_patient_images(patient_id: str) -> Dict
-    # Returns: {"dicom_files": List[str], "dicom_count": int, "has_ecg": bool}
-    # Find all available images for a patient
+    # Returns: {{"dicom_files": List[str], "dicom_count": int, "has_ecg": bool}}
+    # Find all available images for a patient by patient_id
 
 load_dicom_image(patient_id: str, image_index: int = 0) -> Optional[str]
-    # Load DICOM image as optimized base64 PNG string
+    # Load DICOM by patient_id (may fail if DICOM filenames don't match patient UUID)
     # image_index: 0 for first image, 1 for second, etc.
     # Returns base64 string ready for vision analysis
+    # NOTE: Prefer load_dicom_image_from_path() with scan_dicom_directory() for reliability
 
 load_ecg_image(patient_id: str) -> Optional[str]
     # Load ECG image as base64 PNG string from observations.csv
     # Returns base64 string ready for vision analysis
 
 get_dicom_metadata(patient_id: str, image_index: int = 0) -> Dict
-    # Returns: {"modality": str, "study_description": str, "body_part": str, "dimensions": str, ...}
+    # Returns: {{"modality": str, "study_description": str, "body_part": str, "dimensions": str, ...}}
     # Get DICOM metadata without loading pixel data (requires patient ID)
 
 analyze_image_with_llm(image_base64: str, prompt: str) -> str
@@ -881,9 +1175,53 @@ analyze_multiple_images_with_llm(images: List[str], prompt: str) -> str
     # Returns: Vision analysis as text
     # Example: analysis = analyze_multiple_images_with_llm([img1, img2], "Compare these MRIs")
 
+# ----- NEW: OCR and Batch Vision (Qwen3.6-MLX Enhanced) -----
+
+ocr_extract_text(image_base64: str, language: str = "eng") -> str
+    # Extract text from scanned documents/images using vision model OCR
+    # image_base64: Base64 PNG of scanned document, lab report, handwritten note
+    # language: Language hint (default: "eng")
+    # Returns: Extracted text, or "NO_TEXT_FOUND" if no text detected
+    # Example:
+    #   text = ocr_extract_text(scanned_lab_report)
+    #   if text and "NO_TEXT" not in text:
+    #       analysis = analyze_document(text, analysis_type="comprehensive")
+
+analyze_batch_images(image_paths: List[str], prompt: str, batch_size: int = 3) -> Dict
+    # Analyze multiple images in configurable batches with progress logging
+    # image_paths: List of file paths (DICOM, PNG, JPG)
+    # prompt: Clinical question for each batch
+    # batch_size: Images per LLM call (default: 3)
+    # Returns: {{
+    #   "status": "success"|"error",
+    #   "total_images": int,
+    #   "successful": int,
+    #   "failed": int,
+    #   "results": [{{"image_path", "analysis"|"error", "metadata"}}],
+    #   "batch_results": [{{"batch_index", "images_count", "analysis"}}]
+    # }}
+    # Example:
+    #   dicom_files = scan_dicom_directory()
+    #   result = analyze_batch_images(dicom_files[:50], "Identify masses or hemorrhage", batch_size=3)
+    #   for r in result["results"]:
+    #       if r.get("analysis"): print(f"{{r['image_path']}}: {{r['analysis'][:200]}}")
+
 # Progress Logging
 log_progress(message: str) -> None
     # Log progress during long-running analysis
     # Use this to report status when iterating through many patients
     # Example: log_progress(f"Processing patient {i+1}/{total}")
+
+# Random Module (available as 'random')
+random.choice(seq) -> item
+    # Select a random item from a sequence
+    # Example: random_file = random.choice(dicom_files)
+
+random.sample(population, k) -> List
+    # Return k unique random elements from population
+    # Example: sample_files = random.sample(dicom_files, 5)
+
+random.shuffle(x) -> None
+    # Shuffle list in place
+    # Example: random.shuffle(patient_ids)
 """

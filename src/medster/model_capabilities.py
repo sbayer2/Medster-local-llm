@@ -51,28 +51,50 @@ class ModelCapability:
     # Performance optimizations
     skip_arg_optimization: bool = False  # Skip extra LLM call for arg optimization (for slower models)
 
+    # Deprecation tracking
+    _deprecated: bool = False  # Internal flag - model kept for backwards compat only
+
 
 # Model Capability Registry
 MODEL_REGISTRY: Dict[str, ModelCapability] = {
+    "qwen3.6:35b-mlx": ModelCapability(
+        name="qwen3.6:35b-mlx",
+        display_name="Qwen3.6 35B-A3B MOE VL (Vision + Text)",
+        vision=True,
+        native_tools=False,  # Ollama doesn't support native tools consistently
+        tool_strategy=ToolCallingStrategy.PROMPT_JSON,
+        tool_call_reliability=0.92,  # Significantly more reliable than 8B models
+        needs_explicit_json_format=True,
+        context_window=131072,  # 128K context window
+        recommended_max_tokens=16384,
+        inference_speed="medium",  # 35B MOE with active ~3.5B is fast on Apple Silicon
+        needs_tool_examples=True,  # Include examples for best JSON parsing
+        max_retries_on_failure=3,
+        skip_arg_optimization=False,  # Fast enough to afford arg optimization
+        prefers_structured_prompts=True,
+    ),
+
+    # Deprecated models - kept for backwards compatibility during transition
     "gpt-oss:20b": ModelCapability(
         name="gpt-oss:20b",
-        display_name="GPT-OSS 20B (Text-Only)",
+        display_name="GPT-OSS 20B (DEPRECATED - Text-Only)",
         vision=False,
-        native_tools=False,  # Ollama doesn't support native tools for this model
+        native_tools=False,
         tool_strategy=ToolCallingStrategy.PROMPT_JSON,
         tool_call_reliability=0.85,
         needs_explicit_json_format=True,
         context_window=16384,
         inference_speed="medium",
-        needs_tool_examples=True,  # Include examples for better JSON parsing
+        needs_tool_examples=True,
         max_retries_on_failure=3,
+        _deprecated=True,
     ),
 
     "qwen3-vl:8b": ModelCapability(
         name="qwen3-vl:8b",
-        display_name="Qwen3-VL 8B (Vision)",
+        display_name="Qwen3-VL 8B (DEPRECATED - Vision)",
         vision=True,
-        native_tools=False,  # Qwen VL models have limited native tool support
+        native_tools=False,
         tool_strategy=ToolCallingStrategy.PROMPT_JSON,
         tool_call_reliability=0.6,
         needs_explicit_json_format=True,
@@ -80,14 +102,15 @@ MODEL_REGISTRY: Dict[str, ModelCapability] = {
         inference_speed="slow",
         needs_tool_examples=True,
         max_retries_on_failure=3,
-        skip_arg_optimization=True,  # Skip extra LLM call - too slow
+        skip_arg_optimization=True,
+        _deprecated=True,
     ),
 
     "ministral-3:8b": ModelCapability(
         name="ministral-3:8b",
-        display_name="Ministral 3 8B (Vision)",
+        display_name="Ministral 3 8B (DEPRECATED - Vision)",
         vision=True,
-        native_tools=False,  # Ollama doesn't support native tools consistently
+        native_tools=False,
         tool_strategy=ToolCallingStrategy.PROMPT_JSON,
         tool_call_reliability=0.8,
         needs_explicit_json_format=True,
@@ -95,18 +118,20 @@ MODEL_REGISTRY: Dict[str, ModelCapability] = {
         inference_speed="medium",
         needs_tool_examples=True,
         max_retries_on_failure=3,
-        skip_arg_optimization=True,  # Skip extra LLM call for faster execution
+        skip_arg_optimization=True,
+        _deprecated=True,
     ),
 
     "llama3.1:8b": ModelCapability(
         name="llama3.1:8b",
-        display_name="Llama 3.1 8B",
+        display_name="Llama 3.1 8B (DEPRECATED)",
         vision=False,
         native_tools=True,
         tool_strategy=ToolCallingStrategy.NATIVE,
         tool_call_reliability=0.75,
         context_window=8192,
         inference_speed="fast",
+        _deprecated=True,
     ),
 }
 
@@ -154,28 +179,34 @@ def get_max_retries(model_name: str) -> int:
     return get_model_capability(model_name).max_retries_on_failure
 
 
-# Tool Selection Prompt Templates
-TOOL_SELECTION_PROMPT_JSON = """
-Based on the task, select the most appropriate tool to use.
+def is_deprecated_model(model_name: str) -> bool:
+    """Check if a model is deprecated (kept for backwards compatibility only)."""
+    return get_model_capability(model_name)._deprecated
 
+
+def get_primary_model() -> str:
+    """Return the primary/recommended model for this installation."""
+    return "qwen3.6:35b-mlx"
+
+
+def get_active_models() -> List[str]:
+    """Return list of non-deprecated model names."""
+    return [name for name, cap in MODEL_REGISTRY.items() if not cap._deprecated]
+
+
+# Tool Selection Prompt Templates
+# NOTE: These are MINIMAL prompts - detailed guidance is in prompts.py compositional system
+TOOL_SELECTION_PROMPT_JSON = """
 AVAILABLE TOOLS:
 {tool_descriptions}
 
-IMPORTANT: You MUST respond with a valid JSON object in this exact format:
-{{
-    "reasoning": "Brief explanation of why you chose this tool",
-    "tool_name": "exact_tool_name_from_list",
-    "tool_args": {{
-        "arg1": "value1",
-        "arg2": "value2"
-    }}
-}}
+Select the appropriate tool based on the system prompt guidance.
 
-If no tool is needed, respond with:
+RESPOND with valid JSON:
 {{
-    "reasoning": "Explanation of why no tool is needed",
-    "tool_name": null,
-    "tool_args": {{}}
+    "reasoning": "Brief explanation",
+    "tool_name": "tool_name_or_null",
+    "tool_args": {{"param": "value"}}
 }}
 
 RULES:
@@ -185,51 +216,16 @@ RULES:
 """
 
 TOOL_SELECTION_PROMPT_WITH_EXAMPLES = """
-Based on the task, select the most appropriate tool to use.
-
 AVAILABLE TOOLS:
 {tool_descriptions}
 
-EXAMPLES:
+Select the appropriate tool based on the system prompt guidance.
 
-Example 1 - Searching for patients with conditions:
-Task: "Find patients with diabetes"
-Response:
-{{
-    "reasoning": "Need to search for patients with diabetes diagnosis using batch conditions tool",
-    "tool_name": "analyze_batch_conditions",
-    "tool_args": {{
-        "patient_limit": 50,
-        "condition_filter": "diabetes"
-    }}
-}}
-
-Example 2 - Getting patient demographics:
-Task: "Get demographics for patient 12345"
-Response:
-{{
-    "reasoning": "Need patient demographic information",
-    "tool_name": "get_demographics",
-    "tool_args": {{
-        "patient_id": "12345"
-    }}
-}}
-
-Example 3 - No tool needed:
-Task: "Summarize the previous findings"
-Response:
-{{
-    "reasoning": "This is a summary task that doesn't require new data",
-    "tool_name": null,
-    "tool_args": {{}}
-}}
-
-NOW RESPOND FOR THE CURRENT TASK:
-You MUST respond with a valid JSON object in this exact format:
+RESPOND with valid JSON:
 {{
     "reasoning": "Brief explanation",
     "tool_name": "tool_name_or_null",
-    "tool_args": {{"arg": "value"}}
+    "tool_args": {{"param": "value"}}
 }}
 """
 
@@ -246,10 +242,12 @@ POSSIBLE ISSUES:
 2. The data format may differ from expected - check available fields
 3. The patient/record may not exist - verify identifiers
 
-SUGGESTED ACTIONS:
-{suggested_actions}
+**RETRY STRATEGY (in order):**
+1. FIRST: Adjust parameters on the SAME tool (broader search, different filters)
+2. SECOND: Try a DIFFERENT simple tool if applicable
+3. LAST RESORT: Use generate_and_run_analysis only if no simple tool exists
 
-Please try a different approach. Select a tool with adjusted parameters:
+{suggested_actions}
 
 AVAILABLE TOOLS:
 {tool_descriptions}
@@ -311,17 +309,28 @@ def get_no_data_fallback_prompt(
     tool_descriptions = build_tool_descriptions(tools)
 
     # Generate suggested actions based on the tool that failed
-    suggested_actions = []
-    if "condition" in previous_tool.lower():
+    suggested_actions = ["**SUGGESTED ACTIONS:**"]
+
+    if "condition" in previous_tool.lower() or "batch" in previous_tool.lower():
         suggested_actions.append("- Try broader search terms (e.g., 'diabetes' instead of 'type 2 diabetes')")
         suggested_actions.append("- Increase patient_limit to search more records")
-        suggested_actions.append("- Use generate_and_run_analysis for complex queries with AND logic")
-    elif "patient" in previous_tool.lower():
+        suggested_actions.append("- (LAST RESORT) Use generate_and_run_analysis only for complex AND/OR logic")
+    elif "patient" in previous_tool.lower() or "list" in previous_tool.lower():
         suggested_actions.append("- Verify the patient_id format")
         suggested_actions.append("- Try list_patients first to get valid IDs")
+        suggested_actions.append("- Check if limit parameter is too restrictive")
+    elif "lab" in previous_tool.lower() or "vital" in previous_tool.lower():
+        suggested_actions.append("- Verify the patient_id exists")
+        suggested_actions.append("- Try without date filters to see all available data")
+        suggested_actions.append("- Check if lab_type filter is too specific")
+    elif "image" in previous_tool.lower() or "dicom" in previous_tool.lower():
+        suggested_actions.append("- Verify the image_base64 data is valid")
+        suggested_actions.append("- Try analyze_patient_ecg if looking for ECG (loads internally)")
+        suggested_actions.append("- Check if DICOM file paths are correct")
     else:
         suggested_actions.append("- Check parameter values and formats")
-        suggested_actions.append("- Try a simpler query first")
+        suggested_actions.append("- Try a simpler tool first (list_patients, get_demographics)")
+        suggested_actions.append("- (LAST RESORT) Use generate_and_run_analysis only if no simple tool works")
 
     return NO_DATA_FALLBACK_PROMPT.format(
         previous_tool=previous_tool,

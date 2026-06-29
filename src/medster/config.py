@@ -24,7 +24,7 @@ MCP_DEBUG = os.getenv("MCP_DEBUG", "false").lower() == "true"
 
 # Ollama configuration (local LLM)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.6:35b-mlx")
 
 # Runtime model selection (set by CLI at startup)
 _SELECTED_MODEL = None

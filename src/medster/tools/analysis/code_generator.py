@@ -2,11 +2,13 @@
 # Allows the agent to generate and execute Python code when existing tools are insufficient
 
 from langchain.tools import tool
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 import traceback
 import logging
 from datetime import datetime
+
+import random as _random
 
 from medster.tools.analysis.primitives import (
     # Core patient data
@@ -31,6 +33,7 @@ from medster.tools.analysis.primitives import (
     # Vision/imaging
     scan_dicom_directory,
     get_dicom_metadata_from_path,
+    load_dicom_image_from_path,  # NEW: Load DICOM by file path (use with scan_dicom_directory)
     find_patient_images,
     load_dicom_image,
     load_ecg_image,
@@ -38,6 +41,9 @@ from medster.tools.analysis.primitives import (
     analyze_image_with_llm,
     analyze_ecg_for_rhythm,
     analyze_multiple_images_with_llm,
+    # NEW: OCR and batch vision (Qwen3.6-MLX enhanced)
+    ocr_extract_text,
+    analyze_batch_images,
     PRIMITIVES_SPEC
 )
 
@@ -103,13 +109,17 @@ def create_sandbox_globals(patient_limit: int) -> dict:
         # Vision/Imaging Primitives
         "scan_dicom_directory": scan_dicom_directory,
         "get_dicom_metadata_from_path": get_dicom_metadata_from_path,
+        "load_dicom_image_from_path": load_dicom_image_from_path,  # Load by path (use with scan_dicom_directory)
         "find_patient_images": find_patient_images,
-        "load_dicom_image": load_dicom_image,
+        "load_dicom_image": load_dicom_image,  # Load by patient_id
         "load_ecg_image": load_ecg_image,
         "get_dicom_metadata": get_dicom_metadata,
         "analyze_image_with_llm": analyze_image_with_llm,
         "analyze_ecg_for_rhythm": analyze_ecg_for_rhythm,
         "analyze_multiple_images_with_llm": analyze_multiple_images_with_llm,
+        # NEW: OCR and batch vision (Qwen3.6-MLX enhanced)
+        "ocr_extract_text": ocr_extract_text,
+        "analyze_batch_images": analyze_batch_images,
 
         # Safe built-ins
         "len": len,
@@ -139,6 +149,15 @@ def create_sandbox_globals(patient_limit: int) -> dict:
         "type": type,
         "ord": ord,  # For hash-based pseudo-random selection
         "chr": chr,  # Inverse of ord, useful for string operations
+
+        # Random module for sampling
+        "random": _random,
+
+        # Typing module for type hints (avoid import errors)
+        "List": List,
+        "Dict": Dict,
+        "Any": Any,
+        "Optional": Optional,
 
         # Exception handling
         "Exception": Exception,

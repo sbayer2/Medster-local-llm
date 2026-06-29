@@ -26,10 +26,11 @@ from medster.tools.clinical.scores import (
     calculate_clinical_score,
 )
 
-# Import MCP analysis tools
-from medster.tools.analysis.mcp_client import (
-    analyze_medical_document,
-)
+# Import MCP analysis tools (DEPRECATED - use local Qwen3.6 model instead)
+# Kept for backwards compatibility but NOT registered in TOOLS
+# from medster.tools.analysis.mcp_client import (
+#     analyze_medical_document,
+# )
 
 # Import code generation tool (LLM-as-orchestrator)
 from medster.tools.analysis.code_generator import (
@@ -40,6 +41,11 @@ from medster.tools.analysis.code_generator import (
 from medster.tools.analysis.vision_analyzer import (
     analyze_patient_ecg,
     analyze_medical_images,
+)
+
+# Import local document analysis tool (replacement for deprecated MCP)
+from medster.tools.analysis.document_analyzer import (
+    analyze_document,
 )
 
 
@@ -68,13 +74,13 @@ TOOLS: list[Callable[..., any]] = [
     # Clinical scores
     calculate_clinical_score,
 
-    # Complex analysis via MCP server
-    analyze_medical_document,
-
     # Dynamic code generation for custom analysis
     generate_and_run_analysis,
 
     # Vision analysis for medical images
     analyze_patient_ecg,  # Simple: takes patient_id, loads image internally
     analyze_medical_images,  # Advanced: takes raw base64 image data
+
+    # Local document analysis (replacement for deprecated MCP server)
+    analyze_document,
 ]

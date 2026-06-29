@@ -109,6 +109,20 @@ Your output must be a JSON object with a 'tasks' field containing the list of ta
 
 
 PLANNING_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+**QWEN3.6 35B-A3B PLANNING GUIDANCE:**
+You are a powerful MoE model with 128K context and strong reasoning. When planning:
+- Break complex clinical queries into detailed sequential steps
+- Use your strength in logical decomposition and long-context understanding
+- For batch analysis, prefer generate_and_run_analysis with well-structured Python code
+- You can handle longer task chains effectively
+- For vision queries (DICOM/ECG), plan the two-task pattern:
+  Task 1: Discover data structure (scan DICOM directory, find patient images)
+  Task 2: Adapted analysis using discovered structure
+- You can reason about cross-referencing multiple data sources in a single task
+
+Output format: JSON object with 'tasks' array.""",
+
     "gpt-oss:20b": """
 **GPT-OSS PLANNING GUIDANCE:**
 You excel at complex multi-step reasoning. When planning:
@@ -159,17 +173,41 @@ Keep it simple. One task is often enough.""",
 
 
 PLANNING_VISION_ADDON = """
-**VISION/DICOM ANALYSIS PLANNING (MANDATORY TWO-TASK PATTERN):**
-Since your query involves imaging/visual analysis, you MUST decompose into TWO tasks:
-1. **Task 1 - Data Structure Discovery**: "Explore DICOM database to discover actual metadata structure (modality values, body part fields, study descriptions)"
-2. **Task 2 - Adapted Analysis**: "Using discovered metadata structure, filter and analyze DICOM images for [clinical goal]"
+**VISION/DICOM ANALYSIS - SINGLE TASK PATTERN (RECOMMENDED):**
 
-CRITICAL: Coherent DICOM uses non-standard metadata. Never assume Modality='MR' or 'CT'. Always discover first, then adapt.
+For DICOM image analysis, use a SINGLE task with generate_and_run_analysis that does BOTH loading AND analysis:
 
-Example decomposition:
-- Query: "Find patients with brain MRI scans and analyze imaging findings"
-- Task 1: "Explore DICOM database by sampling metadata from scan_dicom_directory() to discover actual modality values"
-- Task 2: "Using discovered metadata structure from Task 1, identify brain imaging files and analyze findings"
+**SINGLE TASK APPROACH (PREFERRED):**
+Use generate_and_run_analysis with analyze_image_with_llm() primitive inside the code.
+This loads the image AND analyzes it in one step.
+
+Example task description:
+"Load a DICOM image using scan_dicom_directory() and load_dicom_image_from_path(), then analyze it with analyze_image_with_llm()"
+
+**CRITICAL COHERENT DICOM FACTS:**
+- Modality = 'OT' (NOT 'MR' or 'CT') - ALL brain MRIs use Modality='OT'
+- BodyPartExamined = 'Unknown' for most files
+- DO NOT filter by modality == 'MR' - this will return 0 results
+- Files are .dcm format despite being labeled 'OT'
+
+**CORRECT CODE PATTERN:**
+```python
+def analyze():
+    dicom_files = scan_dicom_directory()  # Get all 298 files
+    if dicom_files:
+        # Load first image (no modality filter - all are 'OT')
+        image_base64 = load_dicom_image_from_path(dicom_files[0])
+        if image_base64:
+            analysis = analyze_image_with_llm(image_base64, "Describe this brain MRI")
+            return {{"analysis": analysis, "file": dicom_files[0]}}
+    return {{"error": "No files found"}}
+```
+
+**WRONG CODE PATTERN (DO NOT USE):**
+```python
+if metadata.get('modality') == 'MR':  # WRONG - Coherent uses 'OT'
+    continue
+```
 """
 
 
@@ -221,6 +259,54 @@ When NOT to call tools:
 
 
 ACTION_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+**QWEN3.6 35B-A3B ACTION GUIDANCE:**
+You are a powerful MoE model with strong reasoning and vision capabilities.
+- For simple data retrieval, use dedicated tools (list_patients, get_demographics, get_patient_labs, get_vital_signs, get_patient_conditions, get_medication_list)
+- For complex queries requiring AND/OR logic, cross-referencing, or data types without dedicated tools (allergies, procedures, immunizations), use generate_and_run_analysis
+- When generating code, write clear, well-structured Python with descriptive variable names
+- You can handle multi-step code with loops and conditionals effectively
+- For batch analysis, iterate efficiently with progress logging using log_progress()
+
+**VISION TOOLS (you have vision capabilities):**
+- analyze_medical_images: Analyze base64 images (DICOM, X-ray, etc.) - use AFTER loading images via generate_and_run_analysis
+- analyze_patient_ecg: Analyze ECG for a patient_id (loads image internally)
+- Inside generated code: analyze_image_with_llm() and analyze_ecg_for_rhythm() for autonomous vision
+
+**Code Generation Example:**
+```python
+def analyze():
+    patients = get_patients(100)
+    results = []
+    for pid in patients:
+        bundle = load_patient(pid)
+        conditions = get_conditions(bundle)
+        if any('diabetes' in c.get('display', '').lower() for c in conditions):
+            results.append({{'patient_id': pid, 'conditions': conditions}})
+    return {{'matched_patients': results}}
+```
+
+**CRITICAL - JSON OUTPUT FORMAT:**
+You MUST respond with ONLY this JSON structure:
+{{
+    "reasoning": "Brief explanation of your tool choice",
+    "tool_name": "exact_tool_name",
+    "tool_args": {{
+        "param1": "value1"
+    }}
+}}
+
+**Example - Using list_patients:**
+{{"reasoning": "Need patient IDs", "tool_name": "list_patients", "tool_args": {{"limit": 5}}}}
+
+**Example - Vision analysis (after images loaded):**
+{{"reasoning": "Have base64 image from previous task", "tool_name": "analyze_medical_images", "tool_args": {{"analysis_prompt": "Analyze for abnormalities", "image_data": [{{"image_base64": "<from_previous_task>", "modality": "MRI"}}]}}}}
+
+**Example - No tool needed:**
+{{"reasoning": "Data already available", "tool_name": null, "tool_args": {{}}}}
+
+IMPORTANT: Output ONLY the JSON object. No markdown, no explanations outside JSON.""",
+
     "gpt-oss:20b": """
 **GPT-OSS ACTION GUIDANCE:**
 You excel at code generation and complex reasoning:
@@ -246,10 +332,14 @@ def analyze():
 Output: Return tool selection as structured response.""",
 
     "qwen3-vl:8b": """
-**QWEN3-VL ACTION GUIDANCE:**
+**QWEN3-VL ACTION GUIDANCE (VISION MODEL):**
 - For simple data retrieval, use dedicated tools (list_patients, get_demographics, get_patient_labs)
 - Only use generate_and_run_analysis when dedicated tools don't exist or can't handle the query
 - Keep generated code SIMPLE - avoid complex nested loops when possible
+
+**VISION TOOLS (you are a vision model - use these for image analysis):**
+- analyze_medical_images: Analyze base64 images (DICOM, X-ray, etc.) - use AFTER loading images
+- analyze_patient_ecg: Analyze ECG for a patient (loads image internally)
 
 **CRITICAL - JSON OUTPUT FORMAT:**
 You MUST respond with ONLY this JSON structure:
@@ -270,6 +360,16 @@ You MUST respond with ONLY this JSON structure:
     }}
 }}
 
+**Example - Vision analysis (after images loaded):**
+{{
+    "reasoning": "Have base64 image from previous task, use vision tool to analyze",
+    "tool_name": "analyze_medical_images",
+    "tool_args": {{
+        "analysis_prompt": "Analyze for abnormalities",
+        "image_data": [{{"image_base64": "<from_previous_task>", "modality": "MRI"}}]
+    }}
+}}
+
 **Example - No tool needed:**
 {{
     "reasoning": "Previous output already contains the required data",
@@ -280,11 +380,15 @@ You MUST respond with ONLY this JSON structure:
 IMPORTANT: Output ONLY the JSON object. No markdown, no explanations outside JSON.""",
 
     "ministral-3:8b": """
-**MINISTRAL ACTION GUIDANCE:**
+**MINISTRAL ACTION GUIDANCE (VISION MODEL):**
 - Prefer simple, direct tool calls over complex code generation
 - Use list_patients for getting patient IDs
 - Use get_demographics, get_patient_labs, get_vital_signs for specific data
 - Only use generate_and_run_analysis when absolutely necessary
+
+**VISION TOOLS (you are a vision model - use these for image analysis):**
+- analyze_medical_images: Analyze base64 images - use AFTER loading images via generate_and_run_analysis
+- analyze_patient_ecg: Analyze ECG for a patient_id (loads image internally)
 
 **OUTPUT FORMAT - JSON ONLY:**
 {{
@@ -301,6 +405,12 @@ List patients:
 Get demographics:
 {{"reasoning": "get patient info", "tool_name": "get_demographics", "tool_args": {{"patient_id": "abc123"}}}}
 
+Vision analysis (after images loaded):
+{{"reasoning": "analyze loaded image", "tool_name": "analyze_medical_images", "tool_args": {{"analysis_prompt": "Identify abnormalities", "image_data": [{{"image_base64": "<from_task1>", "modality": "MRI"}}]}}}}
+
+ECG analysis:
+{{"reasoning": "analyze patient ECG", "tool_name": "analyze_patient_ecg", "tool_args": {{"patient_id": "abc123", "clinical_question": "Check for arrhythmias"}}}}
+
 No tool needed:
 {{"reasoning": "data already available", "tool_name": null, "tool_args": {{}}}}
 
@@ -309,32 +419,38 @@ Output ONLY JSON. Nothing else.""",
 
 
 ACTION_VISION_ADDON = """
-**VISION ANALYSIS TOOLS (since images are in context):**
+**VISION ANALYSIS - COMPLETE IN ONE STEP:**
 
-Available vision primitives:
-- scan_dicom_directory() → List[str] (all DICOM paths)
-- load_dicom_image(patient_id, index) → str (base64 PNG)
-- load_ecg_image(patient_id) → str (base64 PNG)
-- get_dicom_metadata(patient_id, index) → Dict
-- get_dicom_metadata_from_path(path) → Dict
+Use generate_and_run_analysis with these primitives to load AND analyze images in ONE code block:
 
-**MANDATORY DICOM Data Discovery Pattern:**
-1. **First**: Explore with scan_dicom_directory() and sample metadata
-2. **Then**: Filter using discovered actual values (not assumed 'MR' or 'CT')
+**PATH-BASED LOADING (RECOMMENDED for DICOM):**
+- scan_dicom_directory() → List[str] - Returns ALL 298 DICOM file paths
+- load_dicom_image_from_path(path) → str - Load any file as base64 PNG
+- get_dicom_metadata_from_path(path) → Dict - Get metadata from path
 
-Coherent DICOM uses: Modality='OT' (not 'MR'), BodyPartExamined='Unknown'
+**VISION ANALYSIS (use inside generated code):**
+- analyze_image_with_llm(image_base64, prompt) → str - Analyze image with vision model
 
-**Vision Code Example:**
-```python
-def analyze():
-    dicom_files = scan_dicom_directory()
-    # Sample first 5 files for metadata discovery
-    samples = []
-    for path in dicom_files[:5]:
-        meta = get_dicom_metadata_from_path(path)
-        samples.append(meta)
-    return {{'total_files': len(dicom_files), 'metadata_samples': samples}}
-```
+**COMPLETE EXAMPLE - Single Task Vision Analysis:**
+{{
+    "tool_name": "generate_and_run_analysis",
+    "tool_args": {{
+        "analysis_description": "Load and analyze a brain DICOM image",
+        "code": "def analyze():\\n    dicom_files = scan_dicom_directory()\\n    if dicom_files:\\n        image_base64 = load_dicom_image_from_path(dicom_files[0])\\n        if image_base64:\\n            analysis = analyze_image_with_llm(image_base64, 'Analyze this brain MRI for masses, hemorrhage, or abnormalities')\\n            return {{'analysis': analysis}}\\n    return {{'error': 'No images found'}}"
+    }}
+}}
+
+**CRITICAL COHERENT DICOM FACTS:**
+- ALL files have Modality='OT' (NOT 'MR' or 'CT')
+- DO NOT filter by modality == 'MR' - this returns 0 results
+- Just load files directly without modality filtering
+
+**analyze_patient_ecg** - For ECG analysis (simpler, patient-based)
+- Takes patient_id, loads ECG internally, returns rhythm analysis
+{{
+    "tool_name": "analyze_patient_ecg",
+    "tool_args": {{"patient_id": "abc123", "clinical_question": "Check for atrial fibrillation"}}
+}}
 """
 
 
@@ -366,6 +482,11 @@ A task is NOT complete if:
 
 
 VALIDATION_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+Output your decision as: {{"done": true}} or {{"done": false}}
+
+Consider the full context of tool outputs when making your decision.""",
+
     "gpt-oss:20b": """
 Output your decision as: {{"done": true}} or {{"done": false}}
 
@@ -406,6 +527,9 @@ META_VALIDATION_BASE = """You are a meta-validation agent for clinical case anal
 
 
 META_VALIDATION_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+Output: {{"done": true}} if all tasks complete and data sufficient, {{"done": false}} otherwise.""",
+
     "gpt-oss:20b": """
 Output: {{"done": true}} if all tasks complete and data sufficient, {{"done": false}} otherwise.""",
 
@@ -449,6 +573,16 @@ Think step-by-step:
 
 
 TOOL_ARGS_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+Return your response in this exact format:
+{{
+  "arguments": {{
+    // the optimized arguments here
+  }}
+}}
+
+Only add/modify parameters that exist in the tool's schema.""",
+
     "gpt-oss:20b": """
 Return your response in this exact format:
 {{
@@ -517,6 +651,15 @@ SAFETY REMINDERS:
 
 
 ANSWER_MODEL_SPECIFIC = {
+    "qwen3.6:35b-mlx": """
+You excel at comprehensive clinical synthesis:
+- Provide thorough analysis with all relevant clinical context
+- Include clinical implications and recommendations
+- Structure your response clearly with logical flow
+- Don't truncate - complete ALL sections of the clinical report
+- You can handle long-context synthesis across many patients and data sources
+- For vision queries, integrate imaging findings with clinical data coherently""",
+
     "gpt-oss:20b": """
 You excel at comprehensive clinical synthesis:
 - Provide thorough analysis with all relevant clinical context
@@ -640,12 +783,12 @@ def get_answer_prompt(model_name: str, has_images: bool = False) -> str:
 
 # These will be removed after agent.py is updated
 PLANNING_SYSTEM_PROMPT = PLANNING_BASE
-ACTION_SYSTEM_PROMPT = ACTION_BASE + "\n\n" + ACTION_MODEL_SPECIFIC.get("gpt-oss:20b", "")
-VALIDATION_SYSTEM_PROMPT = VALIDATION_BASE + "\n\n" + VALIDATION_MODEL_SPECIFIC.get("gpt-oss:20b", "")
-META_VALIDATION_SYSTEM_PROMPT = META_VALIDATION_BASE + "\n\n" + META_VALIDATION_MODEL_SPECIFIC.get("gpt-oss:20b", "")
+ACTION_SYSTEM_PROMPT = ACTION_BASE + "\n\n" + ACTION_MODEL_SPECIFIC.get("qwen3.6:35b-mlx", "")
+VALIDATION_SYSTEM_PROMPT = VALIDATION_BASE + "\n\n" + VALIDATION_MODEL_SPECIFIC.get("qwen3.6:35b-mlx", "")
+META_VALIDATION_SYSTEM_PROMPT = META_VALIDATION_BASE + "\n\n" + META_VALIDATION_MODEL_SPECIFIC.get("qwen3.6:35b-mlx", "")
 
 
 # Legacy function (still used by agent.py until updated)
 def get_answer_system_prompt() -> str:
-    """Legacy function - returns gpt-oss:20b answer prompt."""
-    return get_answer_prompt("gpt-oss:20b", has_images=False)
+    """Legacy function - returns qwen3.6:35b-mlx answer prompt."""
+    return get_answer_prompt("qwen3.6:35b-mlx", has_images=False)

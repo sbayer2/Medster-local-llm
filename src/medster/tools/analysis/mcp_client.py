@@ -1,14 +1,20 @@
 """
 MCP Medical Analysis Client
 
-Connects to FastMCP medical analysis server for specialist-level clinical document analysis.
+DEPRECATED (2026-06-29): This tool connected to a remote FastMCP server running
+Claude Sonnet 4.5 for specialist-level clinical document analysis.
 
-Recursive AI Architecture:
+This has been replaced by the local Qwen3.6-35B-A3B-MOE-VL model which provides
+equivalent (and often superior) analysis capabilities entirely on-device via Apple Silicon.
+
+The replacement tool is analyze_document() in tools/analysis/document_analyzer.py.
+
+This file is kept for reference but is NOT registered in the active TOOLS list.
+To restore: uncomment the import in tools/__init__.py and add analyze_medical_document to TOOLS.
+
+Original architecture:
 - Local Agent: Claude Sonnet 4.5 (Medster) - Orchestration, tool selection, FHIR data extraction
 - Remote Server: Claude Sonnet 4.5 (FastMCP) - Specialist medical document analysis
-
-This creates a "medical specialist consultant" in Medster's backpack that can be delegated
-complex clinical reasoning tasks requiring deep medical knowledge and multi-step analysis.
 """
 
 from langchain.tools import tool
