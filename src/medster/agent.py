@@ -12,18 +12,8 @@ import time
 
 from langchain_core.messages import AIMessage
 
-from medster.model import (
-    call_llm, call_llm_with_fallback,
-    call_opti_llm, call_opti_llm_with_fallback,
-    is_empty_or_no_data_result,
-)
+from medster.model import call_llm, call_llm_with_fallback, is_empty_or_no_data_result
 from medster.config import OPTI_ALL_MODE
-
-# Route all agent loop LLM calls through OptiQ (mlx_vlm, no Ollama HTTP)
-# when OPTI_ALL_MODE is enabled. call_opti_llm has identical signature to
-# call_llm so swapping is a single-line change per call site.
-_llm = call_opti_llm if OPTI_ALL_MODE else call_llm
-_llm_fb = call_opti_llm_with_fallback if OPTI_ALL_MODE else call_llm_with_fallback
 from medster.model_capabilities import (
     get_model_capability,
     supports_native_tools,
@@ -118,7 +108,7 @@ class Agent:
         ).format(tools=tool_descriptions)
 
         try:
-            response = _llm(prompt, model=self.model_name, system_prompt=system_prompt, output_schema=TaskList)
+            response = call_llm(prompt, model=self.model_name, system_prompt=system_prompt, output_schema=TaskList)
             tasks = response.tasks
         except Exception as e:
             self.logger._log(f"Planning failed: {e}")
@@ -175,7 +165,7 @@ class Agent:
         try:
             # Use fallback if we have retry context
             if retry_context:
-                ai_message = _llm_fb(
+                ai_message = call_llm_with_fallback(
                     prompt=prompt,
                     model=self.model_name,
                     system_prompt=action_prompt,
@@ -185,7 +175,7 @@ class Agent:
                     previous_args=retry_context.get('tool_args'),
                 )
             else:
-                ai_message = _llm(
+                ai_message = call_llm(
                     prompt,
                     model=self.model_name,
                     system_prompt=action_prompt,
@@ -211,9 +201,9 @@ class Agent:
         validation_prompt = get_validation_prompt(self.model_name)
 
         try:
-            resp = _llm(prompt, model=self.model_name, system_prompt=validation_prompt, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=validation_prompt, output_schema=IsDone)
             return resp.done
-        except Exception:
+        except:
             return False
 
     # ---------- ask LLM if main goal is achieved ----------
@@ -246,7 +236,7 @@ Task Plan:
         meta_validation_prompt = get_meta_validation_prompt(self.model_name)
 
         try:
-            resp = _llm(prompt, model=self.model_name, system_prompt=meta_validation_prompt, output_schema=IsDone)
+            resp = call_llm(prompt, model=self.model_name, system_prompt=meta_validation_prompt, output_schema=IsDone)
             return resp.done
         except Exception as e:
             self.logger._log(f"Meta-validation failed: {e}")
@@ -277,7 +267,7 @@ Task Plan:
         tool_args_prompt = get_tool_args_system_prompt(self.model_name)
 
         try:
-            response = _llm(prompt, model=self.model_name, system_prompt=tool_args_prompt, output_schema=OptimizedToolArgs)
+            response = call_llm(prompt, model=self.model_name, system_prompt=tool_args_prompt, output_schema=OptimizedToolArgs)
             if isinstance(response, dict):
                 return response if response else initial_args
             return response.arguments
@@ -522,9 +512,13 @@ Task Plan:
             has_images=self._images_in_context
         )
 
-        answer_obj = _llm(prompt, model=self.model_name, system_prompt=answer_system_prompt,
-                          output_schema=None, temperature=0.1)
-        # OptiQ path returns AIMessage (content=str); Ollama path returns Answer (answer=str)
-        if isinstance(answer_obj, AIMessage):
-            return answer_obj.content
+        if OPTI_ALL_MODE:
+            # Route through OptiQ mlx_vlm — free text, no schema wrapper needed.
+            # System prompt is prepended to the user prompt since _vision_generate
+            # uses apply_chat_template which handles it as a single user turn.
+            from medster.tools.analysis.primitives import _vision_generate
+            full_prompt = f"{answer_system_prompt}\n\n{prompt}" if answer_system_prompt else prompt
+            return _vision_generate([], full_prompt, temperature=0.1, max_tokens=2048)
+
+        answer_obj = call_llm(prompt, model=self.model_name, system_prompt=answer_system_prompt, output_schema=Answer)
         return answer_obj.answer
