@@ -496,7 +496,10 @@ def call_opti_llm(
                 images_b64=images or [],
                 prompt=p,
                 temperature=temperature,
-                max_tokens=512,
+                # 2048 (was 512): a generate_and_run_analysis tool call must emit a
+                # long multi-line `code` field; 512 truncated mid-JSON, so no tool
+                # call was parsed and the task was wrongly marked done with no data.
+                max_tokens=2048,
                 enable_thinking=enable_thinking,
             )
             parsed = parse_tool_call_from_json(last_raw)
