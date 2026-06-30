@@ -403,8 +403,10 @@ def _schema_json_hint(schema: Type[BaseModel]) -> str:
 
 def _tool_call_instruction(tools: List[BaseTool]) -> str:
     """Build a compact tool-call instruction block for injection into the OptiQ prompt."""
+    # 700 chars (was 180) so tools with an embedded API reference — notably
+    # generate_and_run_analysis's sandbox-primitive cheat-sheet — survive truncation.
     tool_list = "\n".join(
-        f'  "{t.name}": {t.description[:180].strip()}'
+        f'  "{t.name}": {t.description[:700].strip()}'
         for t in tools
     )
     return (

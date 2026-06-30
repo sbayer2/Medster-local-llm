@@ -352,6 +352,10 @@ Task Plan:
             max_agent_errors = 3  # Max consecutive errors before giving up
 
             while per_task_steps < self.max_steps_per_task:
+                # Exit immediately if a prior path (loop detection etc.) marked it done
+                if task.done:
+                    break
+
                 # Timeout check
                 elapsed = time.time() - task_start_time
                 if elapsed > self.task_timeout_seconds:
@@ -436,12 +440,14 @@ Task Plan:
 
                     action_sig = f"{tool_name}:{optimized_args}"
 
-                    # Loop detection
+                    # Loop detection — by tool NAME (args vary via optimization, so
+                    # exact-signature matching would miss real loops).
                     last_actions.append(action_sig)
                     if len(last_actions) > 4:
                         last_actions = last_actions[-4:]
-                    if len(set(last_actions)) == 1 and len(last_actions) == 4:
-                        self.logger._log("Detected repeating action - aborting to avoid loop.")
+                    last_tool_names = [a.split(':')[0] for a in last_actions]
+                    if len(last_actions) == 4 and len(set(last_tool_names)) == 1:
+                        self.logger._log(f"Detected repeating tool '{tool_name}' (4x) - aborting to avoid loop.")
                         task.done = True
                         break
 
@@ -450,6 +456,11 @@ Task Plan:
                         try:
                             result = self._execute_tool(tool_to_run, tool_name, optimized_args)
                             self.logger.log_tool_run(optimized_args, result)
+
+                            # Always count the step — even an empty-result retry — so the
+                            # per-task budget can't be spun forever by repeated no-data calls.
+                            step_count += 1
+                            per_task_steps += 1
 
                             # Check if result is empty and we should retry
                             if self._is_result_empty(result) and retry_count < self.max_retries_on_no_data:
@@ -460,7 +471,6 @@ Task Plan:
                                     'tool_args': optimized_args,
                                     'result': result,
                                 }
-                                # Continue to next iteration with retry context
                                 continue
 
                             # Format and store output
@@ -473,16 +483,23 @@ Task Plan:
                             error_output = f"Error from {tool_name} with args {optimized_args}: {e}"
                             task_outputs.append(error_output)
                             task_step_outputs.append(error_output)
+                            step_count += 1
+                            per_task_steps += 1
                     else:
                         self.logger._log(f"Invalid tool: {tool_name}")
-
-                    step_count += 1
-                    per_task_steps += 1
 
                 if self.ask_if_done(task.description, "\n".join(task_step_outputs)):
                     task.done = True
                     self.logger.log_task_done(task.description)
                     break
+
+            # If the inner loop exited because the per-task step budget was exhausted
+            # (not via ask_if_done / loop detection / no-tool-calls), mark the task done
+            # so the outer loop advances to the next task instead of re-running this one.
+            if not task.done:
+                self.logger._log(f"Task step budget ({self.max_steps_per_task}) exhausted - advancing.")
+                task.done = True
+                self.logger.log_task_done(task.description)
 
             if task.done and self.is_goal_achieved(query, task_outputs, tasks):
                 self.logger._log("Clinical analysis complete. Generating summary.")

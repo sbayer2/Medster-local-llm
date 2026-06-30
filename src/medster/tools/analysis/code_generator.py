@@ -54,6 +54,7 @@ from medster.tools.analysis.primitives import (
 
 class CodeGenerationInput(BaseModel):
     analysis_description: str = Field(
+        default="Custom FHIR/clinical analysis",
         description="Natural language description of the analysis to perform. Be specific about what data to collect and how to aggregate it."
     )
     code: str = Field(
@@ -181,8 +182,18 @@ def generate_and_run_analysis(
     patient_limit: int = 50
 ) -> dict:
     """
-    Generates and executes custom Python analysis code using FHIR and vision primitives.
-    Use this when existing tools don't support the specific analysis pattern needed.
+    Generate & run custom Python over FHIR/vision primitives in a sandbox. Define
+    analyze() returning a dict. NO import statements (primitives are pre-injected).
+
+    SANDBOX API (use ONLY these names):
+      get_patients(limit) -> List[str]
+      load_patient(pid) -> bundle dict
+      get_conditions(bundle) -> List[Dict]; each has keys: name, code (a STRING, not a dict), clinical_status
+      get_observations(bundle), get_medications(bundle)
+      search_resources(bundle, resource_type)  # 'Patient','Condition','AllergyIntolerance','Procedure',...
+      batch_conditions(pids, filter), batch_observations(pids, category)
+    NOT sandbox primitives (do NOT call): get_patient_conditions, get_demographics.
+      For demographics, read search_resources(bundle, 'Patient')[0].
 
     The code MUST define a function called 'analyze()' that returns a dict.
 
@@ -239,6 +250,13 @@ def generate_and_run_analysis(
         # Create restricted sandbox
         sandbox_globals = create_sandbox_globals(patient_limit)
         sandbox_locals = {}
+
+        # Strip the {{ }} template-escaping artifact that leaks from prompt/docstring
+        # examples into generated code. The two LLM backends have opposite brace needs
+        # (Ollama LangChain templates want {{ }}, OptiQ plain-string prompts want { }),
+        # so doubled braces routinely appear in generated dict literals as invalid Python.
+        # Generated analyze() code does not legitimately use {{ }}, so this is safe.
+        code = code.replace('{{', '{').replace('}}', '}')
 
         # Execute the generated code
         exec(code, sandbox_globals, sandbox_locals)
