@@ -177,8 +177,8 @@ def create_sandbox_globals(patient_limit: int) -> dict:
 
 @tool(args_schema=CodeGenerationInput)
 def generate_and_run_analysis(
-    analysis_description: str,
     code: str,
+    analysis_description: str = "Custom FHIR/clinical analysis",
     patient_limit: int = 50
 ) -> dict:
     """
