@@ -21,7 +21,10 @@ from medster.config import OPTI_ALL_MODE
 
 # Route the agent loop through OptiQ (single local mlx_vlm model — no Ollama KV
 # spike, no oMLX MTP vision-load issue) when OPTI_ALL_MODE is on; else Ollama.
-# Structured calls use enable_thinking=False (clean JSON); synthesis turns it on.
+# enable_thinking=False everywhere that produces structured JSON OR user-facing
+# output (planning/act/validate/synthesis): OptiQ leaks reasoning inline (not in
+# strippable <think> tags), so thinking-on would pollute it. Only 'complicated'
+# document analysis runs thinking-on. temperature=0 for the loop, 0.2 synthesis.
 _llm = call_opti_llm if OPTI_ALL_MODE else call_llm
 _llm_fb = call_opti_llm_with_fallback if OPTI_ALL_MODE else call_llm_with_fallback
 

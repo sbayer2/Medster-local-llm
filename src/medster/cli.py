@@ -32,10 +32,11 @@ def main():
     print(f"\nActive backend: {backend}")
     print(f"  (OPTI_ALL_MODE={config.OPTI_ALL_MODE} — change in .env)")
     print("\nChoose your model:")
-    print("\n1. qwen3.6:35b-mlx (PRIMARY - TEXT + VISION)")
     if config.OPTI_ALL_MODE:
-        print("   - With OPTI_ALL_MODE on, runs as OptiQ 4-bit (Qwen3.6-35B-A3B)")
-        print("     via mlx_vlm on-device — NOT Ollama's text MLX model")
+        print("\n1. OptiQ 4-bit (Qwen3.6-35B-A3B) — single model: agent loop + vision")
+        print("   - Runs on-device via mlx_vlm — NOT Ollama (model id: qwen3.6:35b-mlx)")
+    else:
+        print("\n1. qwen3.6:35b-mlx (PRIMARY - TEXT + VISION)")
     print("   - Qwen3.6 35B-A3B Mixture-of-Experts with Vision")
     print("   - 128K context window, ~3.5B active params (fast on Apple Silicon)")
     print("   - Clinical reasoning, labs, notes, reports")
