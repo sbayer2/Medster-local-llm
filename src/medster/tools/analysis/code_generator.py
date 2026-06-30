@@ -192,8 +192,15 @@ def generate_and_run_analysis(
       get_observations(bundle), get_medications(bundle)
       search_resources(bundle, resource_type)  # 'Patient','Condition','AllergyIntolerance','Procedure',...
       batch_conditions(pids, filter), batch_observations(pids, category)
+    IMAGING / ECG (match BY PATIENT, never by DICOM metadata):
+      find_patient_images(pid) -> {dicom_count, has_ecg, dicom_files}
+      load_dicom_image(pid, index=0) -> base64 PNG   # matched by FILENAME; DICOM tag PatientID is an unrelated SUBJECT#### value, do NOT compare it
+      load_ecg_image(pid) -> base64 PNG              # ECGs live in observations.csv, NOT FHIR ImagingStudy
+      analyze_image_with_llm(base64_png, prompt) -> str   # OptiQ vision read
     NOT sandbox primitives (do NOT call): get_patient_conditions, get_demographics.
       For demographics, read search_resources(bundle, 'Patient')[0].
+    For a patient's brain MRI/CT, PREFER the analyze_patient_dicom(patient_id) tool;
+    for an ECG, PREFER analyze_patient_ecg(patient_id) — no code needed.
 
     The code MUST define a function called 'analyze()' that returns a dict.
 

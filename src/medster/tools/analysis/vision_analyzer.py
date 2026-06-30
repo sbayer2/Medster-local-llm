@@ -13,7 +13,9 @@ from medster.tools.analysis.primitives import (
     load_ecg_image,
     load_dicom_image,
     find_patient_images,
-    analyze_ecg_for_rhythm
+    analyze_ecg_for_rhythm,
+    get_dicom_metadata,
+    analyze_image_with_llm,
 )
 
 
@@ -101,6 +103,93 @@ Provide a detailed analysis with specific findings."""
             "status": "error",
             "patient_id": patient_id,
             "error": f"ECG analysis failed: {str(e)}"
+        }
+
+
+class PatientDICOMAnalysisInput(BaseModel):
+    """Input schema for patient DICOM (brain MRI/CT) analysis."""
+
+    patient_id: str = Field(
+        description="Patient UUID to analyze the DICOM scan for"
+    )
+    clinical_question: str = Field(
+        default="Report the axial-slice findings: masses, hemorrhage, midline shift, ventricular size and symmetry, cortical atrophy, and white-matter changes",
+        description="Specific clinical question about the scan"
+    )
+    clinical_context: str = Field(
+        default="",
+        description="Optional clinical context (e.g., 'Patient with hypertension and prior stroke')"
+    )
+    image_index: int = Field(
+        default=0,
+        description="Which DICOM image to analyze if the patient has more than one (default: first)"
+    )
+
+
+@tool(args_schema=PatientDICOMAnalysisInput)
+def analyze_patient_dicom(
+    patient_id: str,
+    clinical_question: str = "Report the axial-slice findings: masses, hemorrhage, midline shift, ventricular size and symmetry, cortical atrophy, and white-matter changes",
+    clinical_context: str = "",
+    image_index: int = 0
+) -> dict:
+    """
+    Analyze a patient's DICOM scan (brain MRI/CT) using the local OptiQ vision model.
+
+    Takes a patient_id and loads their DICOM image internally, then performs the
+    vision read. The image is matched BY FILENAME (the FHIR UUID is in the DICOM
+    filename) — do NOT scan DICOM metadata PatientID, which is an unrelated
+    SUBJECT#### value. Handles image loading and the OptiQ vision call for you,
+    so no base64 data or generate_and_run_analysis code is needed.
+
+    Use this whenever you have a patient ID and want to examine their brain MRI/CT.
+    This is the DICOM analogue of analyze_patient_ecg.
+
+    Returns structured analysis including modality, availability, and the imaging read.
+    """
+    try:
+        images = find_patient_images(patient_id)
+        if images.get("dicom_count", 0) == 0:
+            return {
+                "status": "error",
+                "patient_id": patient_id,
+                "error": "No DICOM image available for this patient"
+            }
+
+        image_base64 = load_dicom_image(patient_id, image_index)
+        if not image_base64:
+            return {
+                "status": "error",
+                "patient_id": patient_id,
+                "error": "Failed to load DICOM image"
+            }
+
+        metadata = get_dicom_metadata(patient_id, image_index)
+        context_str = f" Clinical context: {clinical_context}." if clinical_context else ""
+        prompt = (
+            f"This is an axial brain {metadata.get('modality', 'MRI/CT')} slice."
+            f"{context_str} {clinical_question}. "
+            f"Describe only what is visible in THIS image; do not speculate beyond it."
+        )
+        analysis = analyze_image_with_llm(image_base64, prompt)
+
+        return {
+            "status": "success",
+            "patient_id": patient_id,
+            "dicom_available": True,
+            "dicom_count": images.get("dicom_count", 0),
+            "image_index": image_index,
+            "modality": metadata.get("modality", "Unknown"),
+            "study_description": metadata.get("study_description", "Unknown"),
+            "clinical_context": clinical_context,
+            "analysis": analysis,
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "patient_id": patient_id,
+            "error": f"DICOM analysis failed: {str(e)}"
         }
 
 

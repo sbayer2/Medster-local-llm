@@ -40,6 +40,7 @@ from medster.tools.analysis.code_generator import (
 # Import vision analysis tools
 from medster.tools.analysis.vision_analyzer import (
     analyze_patient_ecg,
+    analyze_patient_dicom,
     analyze_medical_images,
 )
 
@@ -78,7 +79,8 @@ TOOLS: list[Callable[..., any]] = [
     generate_and_run_analysis,
 
     # Vision analysis for medical images
-    analyze_patient_ecg,  # Simple: takes patient_id, loads image internally
+    analyze_patient_ecg,  # Simple: takes patient_id, loads ECG image internally
+    analyze_patient_dicom,  # Simple: takes patient_id, loads DICOM (brain MRI/CT) internally
     analyze_medical_images,  # Advanced: takes raw base64 image data
 
     # Local document analysis (replacement for deprecated MCP server)
