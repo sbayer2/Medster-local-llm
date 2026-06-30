@@ -1,6 +1,6 @@
 # Medster-local-LLM — Autonomous Clinical Case Analysis Agent
 
-**A fully on-device clinical reasoning agent that runs a single 35B vision-language model — agent loop *and* medical image analysis — entirely on an Apple Silicon Mac. No cloud, no API keys, no Ollama in the hot path. Zero per-token cost.**
+**A fully on-device clinical reasoning agent: one 35B vision-language model handles both the analysis *and* the medical images — entirely on an Apple Silicon Mac. No cloud, no API keys, no patient data leaving the machine. Zero per-query cost.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -11,21 +11,22 @@ Medster plans, acts, validates, and synthesizes its way through clinical questio
 
 ---
 
-## The evolution — why this is now genuinely powerful locally
+## Why this matters — foundation-model clinical analysis, now on a desktop
 
-Medster began as a cloud (Claude API) agent, then a cost-saving local fork running small text/vision models through **Ollama**. The current generation is a step change:
+Medster delivers accurate, autonomous clinical analysis over **large health datasets — patient records *and* medical images** — entirely on a physician's or researcher's local machine. Ask it to profile hypertension and its comorbidities across hundreds of patients, stratify a single case's cardiovascular risk, or read a brain MRI or ECG tracing — and it does so without a single byte of patient data leaving the desktop, and without a per-query cloud bill.
 
-| | Old (Ollama era) | **Now (single-OptiQ)** |
+When we built the **original Medster in November 2025**, reaching this quality of multimodal clinical reasoning required large **hosted foundation models — API calls to Anthropic (Claude) and OpenAI (GPT)** — with the attendant per-token cost, network dependency, and patient data leaving the building. In the months since, open-model and Apple-Silicon progress changed the equation: a single 35B vision-language model, 4-bit quantized (**OptiQ**) and run through Apple's **MLX**, now produces **comparable analysis of FHIR records, lab and vital trends, ECG tracings, and DICOM brain scans — on a 64 GB MacBook Pro, fully offline.**
+
+| | Original Medster (Nov 2025) | **Medster-local (now)** |
 |---|---|---|
-| Models | gpt-oss:20b (text) + qwen3-vl:8b (vision), switched at startup | **One** model: Qwen3.6-35B-A3B OptiQ 4-bit |
-| Agent loop | Ollama, HTTP, grammar-constrained JSON | **mlx_vlm on-device** (`call_opti_llm`), JSON via schema-hint + retry |
-| Vision | small 8B vision model, slow | **same 35B VLM** reads DICOM brain MRI/CT + ECG tracings |
-| Runtimes resident | two models (~45 GB) + Ollama server | **one ~24 GB process**, flat memory |
-| Cloud / API | none (local) | none (local) |
+| Reasoning model | hosted Claude / GPT foundation models | Qwen3.6-35B-A3B OptiQ 4-bit, **on-device** |
+| Where patient data goes | sent to Anthropic / OpenAI APIs | **never leaves the desktop** |
+| Cost | per-token API billing | **$0 per query** |
+| Connectivity | requires internet | **runs fully offline** |
+| Images (DICOM / ECG) | cloud vision API | **same local model reads them** |
+| Hardware | any machine + API key | Apple Silicon Mac, 64 GB |
 
-**Why it took a 64 GB Apple Silicon machine:** a 35B Mixture-of-Experts VLM at 4-bit is ~24 GB resident. The Neural Engine + Metal (via Apple's MLX) make a model this size genuinely fast on a laptop — and the OptiQ quantization keeps it on-device with a real vision encoder, so the *same* model handles clinical reasoning and image reads. That's the unlock: you no longer trade text quality for vision, or run two models that fight for memory.
-
-> **Hard-won lesson baked in:** running the agent loop on Ollama *and* a separate vision model pushed a 64 GB machine into 50 GB+ KV-cache spikes and swap. Collapsing to one OptiQ model via mlx_vlm holds memory flat. See [Architecture](#architecture).
+For a clinician or research team, that means **PHI-safe, zero-marginal-cost, offline** analysis of whole patient cohorts and their imaging — the kind of work that a year ago meant shipping patient data to a cloud provider. The single-model design (one ~24 GB process serving both the reasoning loop and the vision encoder) is what makes that quality fit on a laptop; the technical details are in [Architecture](#architecture).
 
 ---
 
