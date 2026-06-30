@@ -7,7 +7,7 @@
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-MLX-black)](https://github.com/ml-explore/mlx)
 [![Model](https://img.shields.io/badge/Qwen3.6--35B--A3B-OptiQ%204bit-orange)](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit)
 
-Medster plans, acts, validates, and synthesizes its way through clinical questions over real FHIR/DICOM data — and it does it all on one local model: **Qwen3.6-35B-A3B (OptiQ 4-bit)** served via **mlx_vlm** on the Apple Neural Engine + Metal. Built and validated on a **MacBook Pro (M5 Pro, 64 GB unified memory)**.
+Medster plans, acts, validates, and synthesizes its way through clinical questions over structured FHIR records and DICOM imaging — and it does it all on one local model: **Qwen3.6-35B-A3B (OptiQ 4-bit)** served via **mlx_vlm** on the Apple Neural Engine + Metal. Built and validated on a **MacBook Pro (M5 Pro, 64 GB unified memory)**.
 
 ---
 
@@ -26,7 +26,7 @@ When we built the **original Medster in November 2025**, reaching this quality o
 | Images (DICOM / ECG) | cloud vision API | **same local model reads them** |
 | Hardware | any machine + API key | Apple Silicon Mac, 64 GB |
 
-For a clinician or research team, that means **PHI-safe, zero-marginal-cost, offline** analysis of whole patient cohorts and their imaging — the kind of work that a year ago meant shipping patient data to a cloud provider. The single-model design (one ~24 GB process serving both the reasoning loop and the vision encoder) is what makes that quality fit on a laptop; the technical details are in [Architecture](#architecture).
+For a clinician or research team, that means **PHI-safe, zero-marginal-cost, offline** analysis of whole patient cohorts and their imaging — the kind of work that until recently meant shipping patient data to a cloud provider. The single-model design (one ~24 GB process serving both the reasoning loop and the vision encoder) is what makes that quality fit on a laptop; the technical details are in [Architecture](#architecture).
 
 ---
 
