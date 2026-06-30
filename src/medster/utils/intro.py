@@ -20,7 +20,7 @@ def print_intro():
 
     info = f"""
 {Colors.CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.ENDC}
-{Colors.DIM}  Powered by: Claude Sonnet 4.5 + Coherent FHIR + MCP Medical Server{Colors.ENDC}
+{Colors.DIM}  Powered by: Qwen3.6-35B-A3B OptiQ (MLX, 100% on-device) + Coherent FHIR/DICOM{Colors.ENDC}
 {Colors.DIM}  Primary Use Case: Clinical Case Analysis{Colors.ENDC}
 {Colors.DIM}  Type 'exit' or 'quit' to end session{Colors.ENDC}
 {Colors.CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.ENDC}

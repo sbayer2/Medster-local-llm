@@ -1,3 +1,12 @@
+import os
+
+# Silence the benign "PyTorch was not found" advisory from HuggingFace
+# transformers. mlx_vlm uses transformers only for the tokenizer/processor
+# (chat template); we run on MLX, not PyTorch, so the missing-torch backend
+# warning is irrelevant. Must be set before transformers is first imported.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -17,8 +26,16 @@ def main():
     print("\n" + "="*70)
     print("MODEL SELECTION")
     print("="*70)
+    backend = ("OptiQ 4-bit via mlx_vlm — single model, on-device, no Ollama"
+               if config.OPTI_ALL_MODE
+               else "Ollama (agent loop) + OptiQ via mlx_vlm (vision)")
+    print(f"\nActive backend: {backend}")
+    print(f"  (OPTI_ALL_MODE={config.OPTI_ALL_MODE} — change in .env)")
     print("\nChoose your model:")
     print("\n1. qwen3.6:35b-mlx (PRIMARY - TEXT + VISION)")
+    if config.OPTI_ALL_MODE:
+        print("   - With OPTI_ALL_MODE on, runs as OptiQ 4-bit (Qwen3.6-35B-A3B)")
+        print("     via mlx_vlm on-device — NOT Ollama's text MLX model")
     print("   - Qwen3.6 35B-A3B Mixture-of-Experts with Vision")
     print("   - 128K context window, ~3.5B active params (fast on Apple Silicon)")
     print("   - Clinical reasoning, labs, notes, reports")
@@ -36,7 +53,8 @@ def main():
         choice = input("\nEnter your choice (1, 2, or 3): ").strip()
         if choice == "1":
             model_name = "qwen3.6:35b-mlx"
-            print(f"\n✓ Selected: qwen3.6:35b-mlx (text + vision)")
+            _be = "OptiQ via mlx_vlm" if config.OPTI_ALL_MODE else "Ollama"
+            print(f"\n✓ Selected: qwen3.6:35b-mlx (text + vision) — {_be}")
             break
         elif choice == "2":
             model_name = "gpt-oss:20b"
