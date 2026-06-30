@@ -305,7 +305,15 @@ COHERENT_CSV_PATH=./coherent_data/csv
 - Sandboxed environment with pre-imported primitives
 - Required: Code must define `analyze()` function returning dict
 
-**Vision Primitives** (`primitives.py`):
+**Patient-level Vision Tools** (`vision_analyzer.py`) — PREFER these (single tool call, no code-gen):
+- `analyze_patient_ecg(patient_id)` - loads the patient's ECG internally + OptiQ rhythm read
+- `analyze_patient_dicom(patient_id)` - loads the patient's brain MRI/CT internally + OptiQ read.
+  Matches the scan BY FILENAME (the DICOM tag `PatientID` is an unrelated `SUBJECT####` value,
+  NOT the FHIR UUID). Added June 2026, mirrors analyze_patient_ecg.
+
+**Vision Primitives** (`primitives.py`) — used by code-gen / the tools above:
+- `find_patient_images(pid)` / `load_dicom_image(pid)` - match a patient's DICOM BY FILENAME
+- `load_ecg_image(pid)` - ECGs are base64 PNG in `csv/observations.csv` (LOINC 29303009), NOT FHIR ImagingStudy
 - `scan_dicom_directory()` - List all DICOM files
 - `load_dicom_image_from_path()` - Load DICOM as base64 PNG
 - `ocr_extract_text()` - Extract text from scanned documents via vision OCR
@@ -678,3 +686,39 @@ This prevents assumptions about Coherent DICOM metadata (uses Modality='OT', not
 
 ### Git Commit
 - `db72d77` - Feat: Add compositional prompts framework for multi-model support
+
+## Session Notes (June 30, 2026)
+
+### Single-OptiQ harness — recovered, validated, extended
+
+**Repo relocated:** the live repo is now `~/projects/Medster-local-LLM`, NOT `~/Desktop/...`.
+An Apple-account logout + iCloud restore rolled the Desktop project's `.git` back to a
+pre-session snapshot and offloaded the dataset to cloud stubs. GitHub was the only intact
+copy; re-cloned to `~/projects` (off iCloud). Dataset re-downloaded from AWS Open Data
+(`s3://synthea-open-data/coherent/coherent-11-07-2022.zip`) to `~/projects/coherent_data`.
+Model stayed safe in `~/.cache`. **Never keep the repo or the 9GB dataset in iCloud-synced
+folders (`~/Desktop`/`~/Documents`)** — iCloud offloading breaks local reads.
+
+**Architecture confirmed (in `47a7d43`, on GitHub):** single OptiQ model via mlx_vlm for the
+WHOLE agent loop + vision (`OPTI_ALL_MODE=true`, `call_opti_llm`/`_vision_generate`). Ollama
+optional fallback only. Thinking OFF for loop/planning/synthesis (OptiQ leaks reasoning
+inline, and planning JSON must parse), thinking ON only for `complicated` doc analysis.
+`skip_arg_optimization=True`. Validated: 168s full agent run, no loops.
+
+**Loop determinism re-applied** (`03a2d38`, were lost on the local-only safety branch):
+mark task done when per-task budget exhausted; break inner loop on `task.done`; loop-detect
+by tool NAME; count empty-result retry steps.
+
+**Code-gen fixes** (`03a2d38`/`4db8fd5`/`a6339b0`): sandbox-primitive cheat-sheet in the tool
+prompt (incl. imaging primitives), `analysis_description` optional (schema + function sig),
+strip `{{ }}` brace artifact before exec, tool-path `max_tokens` 512→2048 (long code field).
+
+**New `analyze_patient_dicom(patient_id)` tool** (`fed65ce`) mirroring `analyze_patient_ecg`:
+single tool call, loads scan BY FILENAME, OptiQ vision read — no code-gen. DICOM kept failing
+before because generated code matched the DICOM tag `PatientID` (`SUBJECT####`) to the FHIR
+UUID. Both ECG + DICOM reads validated end-to-end.
+
+**README rewritten** (`aebd4cc`→`6ca1bc2`) for the single-OptiQ/Apple-Silicon story, framed
+as PHI-safe on-device clinical analysis vs. the Nov 2025 original needing Claude/GPT APIs.
+
+Rewind tags on GitHub: `pre-loop-codegen-fixes`, `pre-dicom-tool`.
