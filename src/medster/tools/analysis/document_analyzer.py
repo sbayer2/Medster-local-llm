@@ -166,22 +166,33 @@ Prioritized list of actions:
 3. Long-term (follow-up, prevention)"""
 
 
-# Temperature by analysis depth:
-#   basic/comprehensive → 0 (deterministic extraction)
-#   complicated → 0.4 (exploration needed for differential reasoning)
+# Temperature by analysis depth: 0 (deterministic) for all levels.
+# complicated was 0.4, but that added run-to-run variance with no measured
+# benefit — see the factorial test in tests/thinking_ab_test.py.
 _ANALYSIS_TEMPERATURE = {
     "basic": 0,
     "comprehensive": 0,
-    "complicated": 0.4,
+    "complicated": 0,
 }
 
-# Thinking (chain-of-thought) by analysis depth:
-#   basic/comprehensive → off (deterministic extraction, clean output)
-#   complicated → on (differential diagnosis + QA self-check benefit from reasoning)
+# Thinking (chain-of-thought) is OFF for all levels. The factorial test in
+# tests/thinking_ab_test.py showed enable_thinking makes this OptiQ model emit
+# pure chain-of-thought and NEVER produce a structured answer (0% reached_answer
+# at every token budget), with no accuracy gain over think-off.
 _ANALYSIS_THINKING = {
     "basic": False,
     "comprehensive": False,
-    "complicated": True,
+    "complicated": False,
+}
+
+
+# Max output tokens by analysis depth. _vision_generate defaults to 1024, which
+# truncated every 'complicated' analysis mid-report (before recommendations). A
+# full complicated report is ~3.4k tokens; 4096 lets it complete (tested -> 7/7).
+_ANALYSIS_MAXTOK = {
+    "basic": 1024,
+    "comprehensive": 1024,
+    "complicated": 4096,
 }
 
 
@@ -255,9 +266,13 @@ def analyze_document(
                 prompt=formatted_prompt,
                 temperature=_ANALYSIS_TEMPERATURE[analysis_type],
                 enable_thinking=_ANALYSIS_THINKING[analysis_type],
+                max_tokens=_ANALYSIS_MAXTOK[analysis_type],
             )
             source = "OptiQ (mlx_vlm) — OPTI_ALL_MODE"
         else:
+            # TODO: this Ollama fallback doesn't share _vision_generate's 1024
+            # default; if it ever truncates, mirror _ANALYSIS_MAXTOK here. Inactive
+            # path while OPTI_ALL_MODE=True (the shipped config).
             response = call_llm(
                 prompt=formatted_prompt,
                 model=get_selected_model(),
