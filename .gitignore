@@ -57,3 +57,6 @@ frontend/.env.production.local
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+
+# Test experiment artifacts (regenerable model dumps + logs)
+tests/ab_out/
